@@ -78,11 +78,29 @@ export class ChromaSync {
   private collectionName: string;
   private readonly VECTOR_DB_DIR: string;
   private readonly BATCH_SIZE = 100;
+  private readonly CONNECTION_TIMEOUT_MS = 30000; // 30 seconds
+  private readonly READINESS_MAX_RETRIES = 10;
+  private readonly READINESS_RETRY_INTERVAL_MS = 500;
 
   constructor(project: string) {
     this.project = project;
     this.collectionName = `cm__${project}`;
     this.VECTOR_DB_DIR = path.join(os.homedir(), '.claude-mem', 'vector-db');
+  }
+
+  /**
+   * Check if an error message indicates initialization/connection issues
+   * Used to determine if a retry or reconnection is needed
+   */
+  private isInitializationError(errorMessage: string): boolean {
+    return (
+      errorMessage.includes('Not connected') ||
+      errorMessage.includes('Connection closed') ||
+      errorMessage.includes('MCP error -32000') ||
+      errorMessage.includes('initialization') ||
+      errorMessage.includes('not ready') ||
+      errorMessage.includes('Received request before')
+    );
   }
 
   /**
@@ -130,7 +148,46 @@ export class ChromaSync {
         capabilities: {}
       });
 
-      await this.client.connect(this.transport);
+      // Connect with timeout to prevent indefinite blocking
+      const connectPromise = this.client.connect(this.transport);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('ChromaDB connection timeout')), this.CONNECTION_TIMEOUT_MS)
+      );
+
+      await Promise.race([connectPromise, timeoutPromise]);
+
+      // Readiness check with retry - ChromaDB may need time to initialize after connection
+      // See: https://github.com/maxritter/claude-mem/issues/643
+      for (let attempt = 0; attempt < this.READINESS_MAX_RETRIES; attempt++) {
+        try {
+          // Send a simple request to verify ChromaDB is ready
+          await this.client.callTool({
+            name: 'chroma_list_collections',
+            arguments: {}
+          });
+          // Success - ChromaDB is ready
+          break;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+
+          if (this.isInitializationError(errorMessage)) {
+            if (attempt === this.READINESS_MAX_RETRIES - 1) {
+              throw new Error(`ChromaDB not ready after ${this.READINESS_MAX_RETRIES} attempts: ${errorMessage}`);
+            }
+            logger.debug('CHROMA_SYNC', 'ChromaDB not ready yet, retrying...', {
+              project: this.project,
+              attempt: attempt + 1,
+              maxRetries: this.READINESS_MAX_RETRIES
+            });
+            await new Promise(resolve => setTimeout(resolve, this.READINESS_RETRY_INTERVAL_MS));
+          } else {
+            // Different error (not initialization-related) - ChromaDB is ready but request failed
+            // This is fine, we just wanted to verify it's responsive
+            break;
+          }
+        }
+      }
+
       this.connected = true;
 
       logger.info('CHROMA_SYNC', 'Connected to Chroma MCP server', { project: this.project });
@@ -165,14 +222,10 @@ export class ChromaSync {
 
       logger.debug('CHROMA_SYNC', 'Collection exists', { collection: this.collectionName });
     } catch (error) {
-      // Check if this is a connection error - don't try to create collection
+      // Check if this is a connection/initialization error - don't try to create collection
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isConnectionError =
-        errorMessage.includes('Not connected') ||
-        errorMessage.includes('Connection closed') ||
-        errorMessage.includes('MCP error -32000');
 
-      if (isConnectionError) {
+      if (this.isInitializationError(errorMessage)) {
         // Reset connection state so next call attempts reconnect
         this.connected = false;
         this.client = null;
@@ -810,18 +863,14 @@ export class ChromaSync {
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isConnectionError =
-        errorMessage.includes('Not connected') ||
-        errorMessage.includes('Connection closed') ||
-        errorMessage.includes('MCP error -32000');
 
-      if (isConnectionError) {
+      if (this.isInitializationError(errorMessage)) {
         // Reset connection state so next call attempts reconnect
         this.connected = false;
         this.client = null;
-        logger.error('CHROMA_SYNC', 'Connection lost during query',
+        logger.error('CHROMA_SYNC', 'Connection/initialization error during query',
           { project: this.project, query }, error as Error);
-        throw new Error(`Chroma query failed - connection lost: ${errorMessage}`);
+        throw new Error(`Chroma query failed - connection/initialization error: ${errorMessage}`);
       }
       throw error;
     }
@@ -839,8 +888,13 @@ export class ChromaSync {
     try {
       parsed = JSON.parse(resultText);
     } catch (error) {
-      logger.error('CHROMA_SYNC', 'Failed to parse Chroma response', { project: this.project }, error as Error);
-      return { ids: [], distances: [], metadatas: [] };
+      // Propagate error instead of silent failure - the response may contain an error message
+      // See: https://github.com/maxritter/claude-mem/issues/643
+      logger.error('CHROMA_SYNC', 'Failed to parse Chroma response', {
+        project: this.project,
+        resultText: resultText.substring(0, 200) // Log first 200 chars for debugging
+      }, error as Error);
+      throw new Error(`ChromaDB returned invalid JSON: ${resultText.substring(0, 100)}`);
     }
 
     // Extract unique IDs from document IDs
