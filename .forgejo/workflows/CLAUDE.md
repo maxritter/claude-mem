@@ -7,6 +7,8 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #6345 | 9:20 PM | 🔵 | Forgejo Release Workflow Automation | ~322 |
+| #6340 | 9:17 PM | 🔴 | Forgejo Release Workflow Changelog Formatting Fix | ~337 |
 | #6063 | 7:17 PM | ✅ | Container Specification Applied to Both CI Jobs | ~243 |
 | #6059 | " | 🔴 | Added Container Specification to Forgejo CI Workflow | ~263 |
 | #6054 | " | 🔵 | Claude-Mem-Fork CI Uses Self-Hosted Runner Without Container | ~298 |

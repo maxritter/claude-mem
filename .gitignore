@@ -32,3 +32,23 @@ src/ui/viewer.html
 /http:*/
 /https:*/
 .playwright-mcp/
+
+# Legacy directories from upstream
+references/
+templates/
+N/
+.github/
+docs/
+config/
+hooks/
+
+# Empty source directories (only had CLAUDE.md)
+src/memory/
+src/commands/
+src/composables/
+src/worker/
+src/app/
+src/api/
+src/handlers/
+tests/folder-index/
+tests/scripts/

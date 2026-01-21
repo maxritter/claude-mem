@@ -13,6 +13,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #6362 | 9:27 PM | 🔵 | Claude-mem header component with social links and settings | ~369 |
 | #6026 | 5:54 PM | 🔵 | LogsModal component analysis reveals comprehensive logging UI | ~336 |
 | #6023 | " | 🔵 | UI component discovery for logs functionality | ~175 |
 | #5534 | 4:33 PM | 🔵 | Found existing CLAUDE_MEM_FOLDER_MD_EXCLUDE implementation | ~258 |

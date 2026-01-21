@@ -22,14 +22,14 @@ export function TopbarActions({ theme, onToggleTheme, onToggleLogs }: TopbarActi
           <Icon icon={theme === 'light' ? 'lucide:moon' : 'lucide:sun'} size={18} />
         </Button>
       </Tooltip>
-      <Tooltip text="Documentation" position="bottom">
+      <Tooltip text="Repository" position="bottom">
         <a
-          href="https://docs.claude-mem.ai"
+          href="https://git.customable.host/customable/claude-mem"
           target="_blank"
           rel="noopener noreferrer"
           className="btn btn-ghost btn-sm"
         >
-          <Icon icon="lucide:book-open" size={18} />
+          <Icon icon="lucide:git-branch" size={18} />
         </a>
       </Tooltip>
     </div>
