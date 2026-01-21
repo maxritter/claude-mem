@@ -1,0 +1,130 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { DashboardLayout } from './layouts';
+import { Router, useRouter } from './router';
+import { DashboardView, MemoriesView, SearchView, SettingsView, LiveView } from './views';
+import { LogsDrawer } from './components/LogsModal';
+import { useTheme } from './hooks/useTheme';
+import { useStats } from './hooks/useStats';
+
+const routes = [
+  { path: '/', component: DashboardView },
+  { path: '/memories', component: MemoriesView },
+  { path: '/memories/:type', component: MemoriesView },
+  { path: '/search', component: SearchView },
+  { path: '/live', component: LiveView },
+  { path: '/settings', component: SettingsView },
+  { path: '/settings/:tab', component: SettingsView },
+];
+
+const SIDEBAR_COLLAPSED_KEY = 'claude-mem-sidebar-collapsed';
+const LOGS_OPEN_KEY = 'claude-mem-logs-open';
+
+export function App() {
+  const { path, navigate } = useRouter();
+  const { resolvedTheme, setThemePreference } = useTheme();
+  const { stats, workerStatus, isLoading } = useStats();
+
+  const [projects, setProjects] = useState<{ name: string; observationCount: number }[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [showLogs, setShowLogs] = useState(() => {
+    try {
+      return localStorage.getItem(LOGS_OPEN_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Fetch projects (without individual counts for performance)
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const projectsRes = await fetch('/api/projects');
+        const projectsData = await projectsRes.json();
+        const projectNames = (projectsData.projects || [])
+          .filter((p: string) => p && p.trim() && !p.startsWith('.') && !p.startsWith('-'))
+          .slice(0, 30);
+
+        // Just use the project names without counts
+        setProjects(projectNames.map((name: string) => ({ name, observationCount: 0 })));
+      } catch (error) {
+        console.error('Failed to fetch projects:', error);
+      }
+    }
+
+    fetchProjects();
+  }, []);
+
+  const handleSearch = useCallback(
+    (query: string) => {
+      navigate(`/search?q=${encodeURIComponent(query)}`);
+    },
+    [navigate]
+  );
+
+  const handleSelectProject = useCallback(
+    (projectName: string | null) => {
+      setSelectedProject(projectName);
+      // Navigate to memories with project filter
+      if (projectName) {
+        navigate(`/memories?project=${encodeURIComponent(projectName)}`);
+      } else {
+        navigate('/memories');
+      }
+    },
+    [navigate]
+  );
+
+  const handleToggleTheme = useCallback(() => {
+    setThemePreference(resolvedTheme === 'light' ? 'dark' : 'light');
+  }, [resolvedTheme, setThemePreference]);
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const newValue = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newValue));
+      } catch {}
+      return newValue;
+    });
+  }, []);
+
+  const handleToggleLogs = useCallback(() => {
+    setShowLogs((prev) => {
+      const newValue = !prev;
+      try {
+        localStorage.setItem(LOGS_OPEN_KEY, String(newValue));
+      } catch {}
+      return newValue;
+    });
+  }, []);
+
+  return (
+    <>
+      <DashboardLayout
+        currentPath={`#${path}`}
+        projects={projects}
+        selectedProject={selectedProject}
+        onSelectProject={handleSelectProject}
+        workerStatus={workerStatus.status}
+        queueDepth={workerStatus.queueDepth}
+        onSearch={handleSearch}
+        theme={resolvedTheme as 'light' | 'dark'}
+        onToggleTheme={handleToggleTheme}
+        onToggleLogs={handleToggleLogs}
+        isProcessing={workerStatus.status === 'processing'}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={handleToggleSidebar}
+      >
+        <Router routes={routes} />
+      </DashboardLayout>
+      <LogsDrawer isOpen={showLogs} onClose={() => setShowLogs(false)} />
+    </>
+  );
+}

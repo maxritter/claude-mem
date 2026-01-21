@@ -1,0 +1,74 @@
+/**
+ * Summarize Handler - Stop
+ *
+ * Extracted from summary-hook.ts - sends summary request to worker.
+ * Transcript parsing stays in the hook because only the hook has access to
+ * the transcript file path.
+ */
+
+import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
+import { ensureWorkerRunning, getWorkerBaseUrl } from '../../shared/worker-utils.js';
+import { fetchWithRetry } from '../../shared/fetch-utils.js';
+import { isProjectExcluded, isMemoryDisabledByProjectConfig } from '../../shared/project-exclusion.js';
+import { getProjectName } from '../../utils/project-name.js';
+import { logger } from '../../utils/logger.js';
+import { extractLastMessage } from '../../shared/transcript-parser.js';
+
+export const summarizeHandler: EventHandler = {
+  async execute(input: NormalizedHookInput): Promise<HookResult> {
+    // Ensure worker is running before any other logic
+    await ensureWorkerRunning();
+
+    const { sessionId, cwd, transcriptPath } = input;
+
+    // Check if memory is disabled via project-level .claude-mem.json (highest priority)
+    if (isMemoryDisabledByProjectConfig(cwd)) {
+      logger.debug('HOOK', 'summarize: Memory disabled by .claude-mem.json', { cwd });
+      return { continue: true, suppressOutput: true };
+    }
+
+    // Check if project is excluded by glob pattern (global setting)
+    const project = getProjectName(cwd);
+    if (isProjectExcluded(project)) {
+      logger.debug('HOOK', 'summarize: Project excluded by CLAUDE_MEM_EXCLUDE_PROJECTS', { project });
+      return { continue: true, suppressOutput: true };
+    }
+
+    const baseUrl = getWorkerBaseUrl();
+
+    // Validate required fields before processing
+    if (!transcriptPath) {
+      throw new Error(`Missing transcriptPath in Stop hook input for session ${sessionId}`);
+    }
+
+    // Extract last assistant message from transcript (the work Claude did)
+    // Note: "user" messages in transcripts are mostly tool_results, not actual user input.
+    // The user's original request is already stored in user_prompts table.
+    const lastAssistantMessage = extractLastMessage(transcriptPath, 'assistant', true);
+
+    logger.dataIn('HOOK', 'Stop: Requesting summary', {
+      workerUrl: baseUrl,
+      hasLastAssistantMessage: !!lastAssistantMessage
+    });
+
+    // Send to worker - worker handles privacy check and database operations
+    const response = await fetchWithRetry(`${baseUrl}/api/sessions/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contentSessionId: sessionId,
+        last_assistant_message: lastAssistantMessage
+      })
+      // Note: Removed signal to avoid Windows Bun cleanup issue (libuv assertion)
+    });
+
+    if (!response.ok) {
+      // Return standard response even on failure (matches original behavior)
+      return { continue: true, suppressOutput: true };
+    }
+
+    logger.debug('HOOK', 'Summary request sent successfully');
+
+    return { continue: true, suppressOutput: true };
+  }
+};
