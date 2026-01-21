@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: [docker, light]
+    container:
+      image: catthehacker/ubuntu:act-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +32,8 @@ jobs:
 
   validate-plugin:
     runs-on: [docker, light]
+    container:
+      image: catthehacker/ubuntu:act-latest
     needs: build
     steps:
       - name: Checkout
