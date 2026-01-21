@@ -1,13 +1,13 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "Claude-Mem",
-  "description": "Persistent memory compression system that preserves context across Claude Code sessions",
+  "description": "Persistent memory for Claude Code - extended fork with Qdrant, OpenCode support, and more",
   "theme": "mint",
   "favicon": "/claude-mem-logomark.webp",
   "logo": {
     "light": "/claude-mem-logo-for-light-mode.webp",
     "dark": "/claude-mem-logo-for-dark-mode.webp",
-    "href": "https://github.com/thedotmack/claude-mem"
+    "href": "https://git.customable.host/customable/claude-mem"
   },
   "colors": {
     "primary": "#3B82F6",
@@ -17,14 +17,18 @@
   "navbar": {
     "links": [
       {
-        "label": "GitHub",
+        "label": "Forgejo",
+        "href": "https://git.customable.host/customable/claude-mem"
+      },
+      {
+        "label": "Original",
         "href": "https://github.com/thedotmack/claude-mem"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Install",
-      "href": "https://github.com/thedotmack/claude-mem#quick-start"
+      "href": "https://git.customable.host/customable/claude-mem#quick-start"
     }
   },
   "navigation": {
@@ -49,7 +53,7 @@
         ]
       },
       {
-        "group": "Cursor Integration",
+        "group": "Platform Integration",
         "icon": "wand-magic-sparkles",
         "pages": [
           "cursor/index",
@@ -89,12 +93,19 @@
           "architecture/search-architecture",
           "architecture/pm2-to-bun-migration"
         ]
+      },
+      {
+        "group": "About",
+        "icon": "heart",
+        "pages": [
+          "attribution"
+        ]
       }
     ]
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/thedotmack/claude-mem"
+      "github": "https://git.customable.host/customable/claude-mem"
     },
     "links": [
       {
@@ -102,20 +113,37 @@
         "items": [
           {
             "label": "Documentation",
-            "href": "https://github.com/thedotmack/claude-mem"
+            "href": "https://git.customable.host/customable/claude-mem"
           },
           {
             "label": "Issues",
-            "href": "https://github.com/thedotmack/claude-mem/issues"
+            "href": "https://git.customable.host/customable/claude-mem/issues"
+          },
+          {
+            "label": "Plugin Marketplace",
+            "href": "https://git.customable.host/customable/claude-plugins"
           }
         ]
       },
       {
-        "header": "Legal",
+        "header": "Attribution",
         "items": [
           {
-            "label": "License (AGPL-3.0)",
-            "href": "https://github.com/thedotmack/claude-mem/blob/main/LICENSE"
+            "label": "Original by thedotmack",
+            "href": "https://github.com/thedotmack/claude-mem"
+          },
+          {
+            "label": "License (MIT)",
+            "href": "https://git.customable.host/customable/claude-mem/src/branch/main/LICENSE"
+          }
+        ]
+      },
+      {
+        "header": "Customable",
+        "items": [
+          {
+            "label": "Website",
+            "href": "https://customable.de"
           }
         ]
       }
@@ -126,7 +154,7 @@
     "metatags": {
       "og:type": "website",
       "og:site_name": "Claude-Mem Documentation",
-      "og:description": "Persistent memory compression system that preserves context across Claude Code sessions"
+      "og:description": "Persistent memory for Claude Code - extended fork with Qdrant, OpenCode support"
     }
   },
   "contextual": {
