@@ -212,24 +212,25 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
 
-          BODY=$(cat << 'BODYEOF'
-          ## Installation
+          # Build release body without leading whitespace
+          cat > /tmp/release_body.md << 'BODYEOF'
+## Installation
 
-          ```
-          > /plugin marketplace add https://git.customable.host/customable/claude-plugins.git
-          > /plugin install claude-mem
-          ```
+```
+> /plugin marketplace add https://git.customable.host/customable/claude-plugins.git
+> /plugin install claude-mem
+```
 
-          ## Changes
+## Changes
 
-          BODYEOF
-          )
+BODYEOF
 
-          BODY="${BODY}
-          ${CHANGELOG}
+          echo "$CHANGELOG" >> /tmp/release_body.md
+          echo "" >> /tmp/release_body.md
+          echo "---" >> /tmp/release_body.md
+          echo "Built from commit ${{ steps.version.outputs.sha }}" >> /tmp/release_body.md
 
-          ---
-          Built from commit ${{ steps.version.outputs.sha }}"
+          BODY=$(cat /tmp/release_body.md)
 
           # Create release via API
           RESPONSE=$(curl -s -X POST \
