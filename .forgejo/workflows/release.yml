@@ -140,11 +140,11 @@ jobs:
                 messages: [
                   {
                     role: "system",
-                    content: "You are a release note writer. Generate a concise, well-formatted changelog in markdown. Group changes by type (Features, Bug Fixes, Improvements, etc.). Be brief but informative. Do not include a header - start directly with the grouped changes."
+                    content: "You are a release note writer. Generate a concise changelog in markdown. Group changes by type (### Features, ### Bug Fixes, ### Improvements). Be brief. IMPORTANT: Output raw markdown only - do NOT wrap your response in code blocks. Do NOT include version headers or dates - start directly with ### section headers."
                   },
                   {
                     role: "user",
-                    content: ("Generate a changelog for version " + $version + " based on these commits:\n\n" + $commits)
+                    content: ("Summarize these commits into a changelog (no version/date header, just grouped changes):\n\n" + $commits)
                   }
                 ],
                 max_tokens: 1000
@@ -157,6 +157,9 @@ jobs:
             echo "Devstral failed, using commit list as fallback"
             CHANGELOG="$COMMITS"
           fi
+
+          # Strip any code block wrappers (```markdown ... ```)
+          CHANGELOG=$(echo "$CHANGELOG" | sed '/^```/d')
 
           # Save changelog
           echo "$CHANGELOG" > /tmp/changelog.md
