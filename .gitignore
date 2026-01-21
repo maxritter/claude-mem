@@ -28,6 +28,7 @@ src/ui/viewer.html
 # Prevent literal tilde directories (path validation bug artifacts)
 ~*/
 
-# Prevent other malformed path directories
-http*/
-https*/.playwright-mcp/
+# Prevent other malformed path directories (URLs accidentally used as paths)
+/http:*/
+/https:*/
+.playwright-mcp/
