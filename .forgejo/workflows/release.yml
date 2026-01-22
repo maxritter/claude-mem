@@ -263,7 +263,7 @@ jobs:
             echo "## Installation"
             echo ""
             echo "$BACKTICKS"
-            echo "> /plugin marketplace add https://git.customable.host/customable/claude-plugins.git"
+            echo "> /plugin marketplace add https://github.com/maxritter/claude-mem.git"
             echo "> /plugin install claude-mem"
             echo "$BACKTICKS"
             echo ""
@@ -291,26 +291,5 @@ jobs:
           echo "Release $TAG created!"
           echo "$RESPONSE" | jq .
 
-      - name: Update marketplace version
-        if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Clone marketplace repo with auth
-          git clone "https://release-bot:${RELEASE_TOKEN}@git.customable.host/customable/claude-plugins.git" /tmp/claude-plugins
-          cd /tmp/claude-plugins
-
-          # Update version in marketplace.json
-          jq --arg v "$VERSION" '.plugins[0].version = $v' .claude-plugin/marketplace.json > marketplace.json.tmp
-          mv marketplace.json.tmp .claude-plugin/marketplace.json
-
-          # Commit and push
-          git config user.name "Release Bot"
-          git config user.email "release@customable.de"
-          git add .claude-plugin/marketplace.json
-          git commit -m "chore: update claude-mem to v${VERSION}"
-          git push origin main
-
-          echo "Marketplace updated to v${VERSION}"
+      # Marketplace version is updated in this repo's .claude-plugin/marketplace.json
+      # No separate marketplace repo needed - this repo IS the marketplace

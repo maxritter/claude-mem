@@ -39,10 +39,10 @@ This is a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-m
 
 ## Quick Start
 
-Install via the Customable plugin marketplace:
+Install via the plugin marketplace:
 
 ```
-> /plugin marketplace add https://git.customable.host/customable/claude-plugins.git
+> /plugin marketplace add https://github.com/maxritter/claude-mem.git
 
 > /plugin install claude-mem
 ```
