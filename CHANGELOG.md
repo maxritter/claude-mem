@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.16.0] - 2026-01-22
+
+### Features
+- Added web viewer login page with cookie-based sessions
+
+
 ## [1.15.1] - 2026-01-22
 
 ### Bug Fixes
