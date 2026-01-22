@@ -1,0 +1,73 @@
+# Claude-Mem Docker Compose Stack
+#
+# Usage:
+#   docker compose up -d              # Start all services
+#   docker compose logs -f claude-mem # View logs
+#   docker compose down               # Stop all services
+#
+# The web UI is available at: http://localhost:37777
+
+services:
+  claude-mem:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-mem:latest
+    container_name: claude-mem
+    restart: unless-stopped
+    ports:
+      - "37777:37777"
+    volumes:
+      # Persistent data storage
+      - claude-mem-data:/data
+    environment:
+      # Worker configuration
+      - CLAUDE_MEM_WORKER_PORT=37777
+      - CLAUDE_MEM_WORKER_BIND_ADDRESS=0.0.0.0
+      - CLAUDE_MEM_DATA_DIR=/data
+
+      # AI Provider (uncomment and configure one)
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+
+      # Vector database (optional, default: chroma)
+      # Options: chroma, qdrant, none
+      - CLAUDE_MEM_VECTOR_DB=none
+
+      # Qdrant configuration (if using qdrant)
+      # - QDRANT_URL=http://qdrant:6333
+      # - QDRANT_API_KEY=${QDRANT_API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:37777/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - claude-mem-network
+
+  # Optional: Qdrant vector database
+  # Uncomment to enable vector search with Qdrant
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: claude-mem-qdrant
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6333:6333"
+  #     - "6334:6334"
+  #   volumes:
+  #     - qdrant-data:/qdrant/storage
+  #   environment:
+  #     - QDRANT__SERVICE__GRPC_PORT=6334
+  #   networks:
+  #     - claude-mem-network
+
+volumes:
+  claude-mem-data:
+    driver: local
+  # qdrant-data:
+  #   driver: local
+
+networks:
+  claude-mem-network:
+    driver: bridge
