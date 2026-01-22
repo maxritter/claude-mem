@@ -196,6 +196,24 @@ export class Server {
       res.status(200).json({ version: BUILT_IN_VERSION });
     });
 
+    // Process stats endpoint - returns counts of claude-mem related processes
+    // Useful for debugging zombie process accumulation
+    this.app.get('/api/process-stats', async (_req: Request, res: Response) => {
+      try {
+        const { getProcessStats } = await import('../infrastructure/ProcessManager.js');
+        const stats = await getProcessStats();
+        res.status(200).json({
+          ...stats,
+          uptime: Math.round((Date.now() - this.startTime) / 1000),
+          platform: process.platform,
+          pid: process.pid,
+        });
+      } catch (error) {
+        logger.error('SYSTEM', 'Failed to get process stats', {}, error as Error);
+        res.status(500).json({ error: 'Failed to get process stats' });
+      }
+    });
+
     // Instructions endpoint - loads SKILL.md sections on-demand
     this.app.get('/api/instructions', async (req: Request, res: Response) => {
       const topic = (req.query.topic as string) || 'all';
