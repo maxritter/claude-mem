@@ -102,6 +102,90 @@ export class ChromaSync implements IVectorSync {
   }
 
   /**
+   * Try to connect using uvx (preferred) or fall back to pip-installed chroma-mcp
+   * Returns transport options that work, or throws if neither works
+   */
+  private async getWorkingTransportOptions(): Promise<any> {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const pythonVersion = settings.CLAUDE_MEM_PYTHON_VERSION;
+    const isWindows = process.platform === 'win32';
+
+    // Try uvx first (preferred, works in most environments)
+    const uvxOptions: any = {
+      command: 'uvx',
+      args: [
+        '--python', pythonVersion,
+        'chroma-mcp',
+        '--client-type', 'persistent',
+        '--data-dir', this.VECTOR_DB_DIR
+      ],
+      stderr: 'ignore'
+    };
+
+    if (isWindows) {
+      uvxOptions.windowsHide = true;
+    }
+
+    // Check if uvx is available
+    try {
+      const { spawnSync } = await import('child_process');
+      const result = spawnSync('uvx', ['--version'], {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 5000
+      });
+
+      if (result.status === 0) {
+        logger.debug('CHROMA_SYNC', 'Using uvx for Chroma MCP', { project: this.project });
+        return uvxOptions;
+      }
+    } catch {
+      // uvx not available, try fallback
+    }
+
+    // Fallback: Try pip-installed chroma-mcp via python -m
+    // This works in Claude Code sandbox where uvx may not be available
+    logger.info('CHROMA_SYNC', 'uvx not available, trying pip fallback', { project: this.project });
+
+    const pythonCmd = isWindows ? 'python' : `python${pythonVersion}`;
+    const pipOptions: any = {
+      command: pythonCmd,
+      args: [
+        '-m', 'chroma_mcp',
+        '--client-type', 'persistent',
+        '--data-dir', this.VECTOR_DB_DIR
+      ],
+      stderr: 'ignore'
+    };
+
+    if (isWindows) {
+      pipOptions.windowsHide = true;
+    }
+
+    // Check if chroma-mcp is pip-installed
+    try {
+      const { spawnSync } = await import('child_process');
+      const result = spawnSync(pythonCmd, ['-c', 'import chroma_mcp'], {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 5000
+      });
+
+      if (result.status === 0) {
+        logger.debug('CHROMA_SYNC', 'Using pip-installed chroma-mcp', { project: this.project });
+        return pipOptions;
+      }
+    } catch {
+      // pip fallback also not available
+    }
+
+    // Neither uvx nor pip works - provide helpful error message
+    throw new Error(
+      'Chroma MCP not available. Install with: uvx chroma-mcp OR pip install chroma-mcp'
+    );
+  }
+
+  /**
    * Ensure MCP client is connected to Chroma server
    * Throws error if connection fails
    */
@@ -113,29 +197,7 @@ export class ChromaSync implements IVectorSync {
     logger.info('CHROMA_SYNC', 'Connecting to Chroma MCP server...', { project: this.project });
 
     try {
-      // Use Python 3.13 by default to avoid onnxruntime compatibility issues with Python 3.14+
-      // See: https://github.com/thedotmack/claude-mem/issues/170 (Python 3.14 incompatibility)
-      const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-      const pythonVersion = settings.CLAUDE_MEM_PYTHON_VERSION;
-      const isWindows = process.platform === 'win32';
-
-      const transportOptions: any = {
-        command: 'uvx',
-        args: [
-          '--python', pythonVersion,
-          'chroma-mcp',
-          '--client-type', 'persistent',
-          '--data-dir', this.VECTOR_DB_DIR
-        ],
-        stderr: 'ignore'
-      };
-
-      // CRITICAL: On Windows, try to hide console window to prevent PowerShell popups
-      // Note: windowsHide may not be supported by MCP SDK's StdioClientTransport
-      if (isWindows) {
-        transportOptions.windowsHide = true;
-        logger.debug('CHROMA_SYNC', 'Windows detected, attempting to hide console window', { project: this.project });
-      }
+      const transportOptions = await this.getWorkingTransportOptions();
 
       this.transport = new StdioClientTransport(transportOptions);
 
