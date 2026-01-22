@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.14.2] - 2026-01-22
+
+### Bug Fixes
+- Fixed Docker build caching by switching from GitHub Actions cache to registry cache
+
+
 ## [1.14.1] - 2026-01-22
 
 ### Bug Fixes
