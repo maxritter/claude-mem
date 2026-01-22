@@ -63,6 +63,11 @@ async function buildHooks() {
         '@xenova/transformers': packageJson.dependencies['@xenova/transformers'],
         '@qdrant/js-client-rest': packageJson.dependencies['@qdrant/js-client-rest']
       },
+      trustedDependencies: [
+        '@openrouter/sdk',
+        '@parcel/watcher',
+        'protobufjs'
+      ],
       engines: {
         node: '>=18.0.0',
         bun: '>=1.0.0'
