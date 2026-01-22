@@ -66,7 +66,8 @@ async function buildHooks() {
       trustedDependencies: [
         '@openrouter/sdk',
         '@parcel/watcher',
-        'protobufjs'
+        'protobufjs',
+        'sharp'
       ],
       engines: {
         node: '>=18.0.0',
