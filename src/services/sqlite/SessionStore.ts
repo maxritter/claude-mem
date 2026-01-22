@@ -2176,4 +2176,265 @@ export class SessionStore {
 
     return { imported: true, id: result.lastInsertRowid as number };
   }
+
+  // ==================== TAG MANAGEMENT ====================
+
+  /**
+   * Get all tags with usage counts
+   */
+  getAllTags(): Array<{
+    id: number;
+    name: string;
+    color: string;
+    description: string | null;
+    usage_count: number;
+    created_at: string;
+  }> {
+    const stmt = this.db.prepare(`
+      SELECT * FROM tags
+      ORDER BY usage_count DESC, name ASC
+    `);
+    return stmt.all() as any[];
+  }
+
+  /**
+   * Create or get a tag by name
+   */
+  getOrCreateTag(name: string, color?: string): { id: number; name: string; color: string; created: boolean } {
+    const normalizedName = name.toLowerCase().trim();
+
+    // Check if tag exists
+    const existing = this.db.prepare(`
+      SELECT id, name, color FROM tags WHERE name = ?
+    `).get(normalizedName) as { id: number; name: string; color: string } | undefined;
+
+    if (existing) {
+      return { ...existing, created: false };
+    }
+
+    // Create new tag
+    const now = new Date();
+    const stmt = this.db.prepare(`
+      INSERT INTO tags (name, color, created_at, created_at_epoch)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      normalizedName,
+      color || '#6b7280',
+      now.toISOString(),
+      now.getTime()
+    );
+
+    return {
+      id: result.lastInsertRowid as number,
+      name: normalizedName,
+      color: color || '#6b7280',
+      created: true
+    };
+  }
+
+  /**
+   * Update a tag's properties
+   */
+  updateTag(id: number, updates: { name?: string; color?: string; description?: string }): boolean {
+    const setClauses: string[] = [];
+    const params: any[] = [];
+
+    if (updates.name !== undefined) {
+      setClauses.push('name = ?');
+      params.push(updates.name.toLowerCase().trim());
+    }
+    if (updates.color !== undefined) {
+      setClauses.push('color = ?');
+      params.push(updates.color);
+    }
+    if (updates.description !== undefined) {
+      setClauses.push('description = ?');
+      params.push(updates.description);
+    }
+
+    if (setClauses.length === 0) return false;
+
+    params.push(id);
+    const stmt = this.db.prepare(`
+      UPDATE tags SET ${setClauses.join(', ')} WHERE id = ?
+    `);
+
+    return stmt.run(...params).changes > 0;
+  }
+
+  /**
+   * Delete a tag
+   */
+  deleteTag(id: number): boolean {
+    const stmt = this.db.prepare('DELETE FROM tags WHERE id = ?');
+    return stmt.run(id).changes > 0;
+  }
+
+  /**
+   * Add tags to an observation
+   */
+  addTagsToObservation(observationId: number, tagNames: string[]): void {
+    const observation = this.getObservationById(observationId);
+    if (!observation) return;
+
+    // Get current tags
+    let currentTags: string[] = [];
+    try {
+      currentTags = observation.tags ? JSON.parse(observation.tags) : [];
+    } catch {
+      currentTags = [];
+    }
+
+    // Normalize and add new tags
+    const normalizedNew = tagNames.map(t => t.toLowerCase().trim());
+    const allTags = [...new Set([...currentTags, ...normalizedNew])];
+
+    // Update observation
+    const stmt = this.db.prepare('UPDATE observations SET tags = ? WHERE id = ?');
+    stmt.run(JSON.stringify(allTags), observationId);
+
+    // Ensure tags exist and update usage counts
+    for (const tagName of normalizedNew) {
+      if (!currentTags.includes(tagName)) {
+        this.getOrCreateTag(tagName);
+        this.db.prepare('UPDATE tags SET usage_count = usage_count + 1 WHERE name = ?').run(tagName);
+      }
+    }
+  }
+
+  /**
+   * Remove tags from an observation
+   */
+  removeTagsFromObservation(observationId: number, tagNames: string[]): void {
+    const observation = this.getObservationById(observationId);
+    if (!observation) return;
+
+    // Get current tags
+    let currentTags: string[] = [];
+    try {
+      currentTags = observation.tags ? JSON.parse(observation.tags) : [];
+    } catch {
+      currentTags = [];
+    }
+
+    // Remove specified tags
+    const normalizedRemove = tagNames.map(t => t.toLowerCase().trim());
+    const remainingTags = currentTags.filter(t => !normalizedRemove.includes(t));
+
+    // Update observation
+    const stmt = this.db.prepare('UPDATE observations SET tags = ? WHERE id = ?');
+    stmt.run(JSON.stringify(remainingTags), observationId);
+
+    // Decrement usage counts
+    for (const tagName of normalizedRemove) {
+      if (currentTags.includes(tagName)) {
+        this.db.prepare('UPDATE tags SET usage_count = MAX(0, usage_count - 1) WHERE name = ?').run(tagName);
+      }
+    }
+  }
+
+  /**
+   * Get tags for an observation
+   */
+  getObservationTags(observationId: number): string[] {
+    const observation = this.getObservationById(observationId);
+    if (!observation?.tags) return [];
+
+    try {
+      return JSON.parse(observation.tags);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Search observations by tags
+   */
+  getObservationsByTags(
+    tags: string[],
+    options: { matchAll?: boolean; limit?: number; project?: string } = {}
+  ): ObservationRecord[] {
+    const { matchAll = false, limit = 50, project } = options;
+    const normalizedTags = tags.map(t => t.toLowerCase().trim());
+
+    let query: string;
+    const params: any[] = [];
+
+    if (matchAll) {
+      // All tags must be present
+      const conditions = normalizedTags.map(() =>
+        'EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)'
+      ).join(' AND ');
+      query = `SELECT * FROM observations WHERE tags IS NOT NULL AND ${conditions}`;
+      params.push(...normalizedTags);
+    } else {
+      // Any tag matches
+      const conditions = normalizedTags.map(() =>
+        'EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)'
+      ).join(' OR ');
+      query = `SELECT * FROM observations WHERE tags IS NOT NULL AND (${conditions})`;
+      params.push(...normalizedTags);
+    }
+
+    if (project) {
+      query += ' AND project = ?';
+      params.push(project);
+    }
+
+    query += ` ORDER BY created_at_epoch DESC LIMIT ?`;
+    params.push(limit);
+
+    const stmt = this.db.prepare(query);
+    return stmt.all(...params) as ObservationRecord[];
+  }
+
+  /**
+   * Get popular tags (most used)
+   */
+  getPopularTags(limit: number = 20): Array<{ name: string; color: string; usage_count: number }> {
+    const stmt = this.db.prepare(`
+      SELECT name, color, usage_count FROM tags
+      WHERE usage_count > 0
+      ORDER BY usage_count DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as any[];
+  }
+
+  /**
+   * Suggest tags based on observation content (using concepts)
+   */
+  suggestTagsForObservation(observationId: number): string[] {
+    const observation = this.getObservationById(observationId);
+    if (!observation) return [];
+
+    const suggestions: string[] = [];
+
+    // Suggest from concepts
+    if (observation.concepts) {
+      try {
+        const concepts = JSON.parse(observation.concepts);
+        suggestions.push(...concepts);
+      } catch {
+        // Not JSON, might be comma-separated
+        if (typeof observation.concepts === 'string') {
+          suggestions.push(...observation.concepts.split(',').map(c => c.trim()));
+        }
+      }
+    }
+
+    // Suggest from observation type
+    if (observation.type) {
+      suggestions.push(observation.type);
+    }
+
+    // Get existing tags that match any of the suggestions
+    const existingTags = this.getAllTags();
+    const existingNames = new Set(existingTags.map(t => t.name));
+
+    // Return suggestions that either exist or are new
+    return [...new Set(suggestions.map(s => s.toLowerCase().trim()))].filter(Boolean);
+  }
 }

@@ -523,6 +523,47 @@ export const migration008: Migration = {
 };
 
 /**
+ * Migration 009 - Add tags column for observation tagging
+ * Allows users to add custom tags to observations for better organization
+ */
+export const migration009: Migration = {
+  version: 9,
+  up: (db: Database) => {
+    // Add tags column to observations table (stored as JSON array)
+    db.run(`ALTER TABLE observations ADD COLUMN tags TEXT`);
+
+    // Create index for tag filtering (will use JSON functions in queries)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_observations_tags ON observations(tags)`);
+
+    // Create tags table for tag management (colors, descriptions, etc.)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        color TEXT DEFAULT '#6b7280',
+        description TEXT,
+        created_at TEXT NOT NULL,
+        created_at_epoch INTEGER NOT NULL,
+        usage_count INTEGER DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+      CREATE INDEX IF NOT EXISTS idx_tags_usage ON tags(usage_count DESC);
+    `);
+
+    console.log('✅ Added tags column and tags management table');
+  },
+
+  down: (db: Database) => {
+    db.run(`DROP TABLE IF EXISTS tags`);
+    db.run(`DROP INDEX IF EXISTS idx_observations_tags`);
+    // Note: SQLite doesn't support DROP COLUMN in all versions
+    console.log('⚠️  Warning: SQLite ALTER TABLE DROP COLUMN not fully supported');
+    console.log('⚠️  To rollback, manually recreate the observations table');
+  }
+};
+
+/**
  * All migrations in order
  */
 export const migrations: Migration[] = [
@@ -533,5 +574,6 @@ export const migrations: Migration[] = [
   migration005,
   migration006,
   migration007,
-  migration008
+  migration008,
+  migration009
 ];

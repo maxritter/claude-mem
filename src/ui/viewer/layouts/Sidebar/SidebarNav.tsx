@@ -11,6 +11,7 @@ const navItems = [
   { icon: 'lucide:brain', label: 'Memories', href: '#/memories' },
   { icon: 'lucide:history', label: 'Sessions', href: '#/sessions' },
   { icon: 'lucide:search', label: 'Search', href: '#/search' },
+  { icon: 'lucide:tags', label: 'Tags', href: '#/tags' },
   { icon: 'lucide:activity', label: 'Live', href: '#/live' },
   { icon: 'lucide:settings', label: 'Settings', href: '#/settings' },
 ];
