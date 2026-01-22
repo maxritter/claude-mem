@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1] - 2026-01-22
+
+### Bug Fixes
+- Prevent stale Web UI cache with aggressive cache-busting
+
+### Improvements
+- Add GitHub links to README
+
+
 ## [1.2.0] - 2026-01-22
 
 ### Features
