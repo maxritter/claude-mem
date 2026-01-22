@@ -5,15 +5,22 @@
  */
 
 import express, { Request, Response } from 'express';
-import { SessionStore } from '../../../sqlite/SessionStore.js';
+import { DatabaseManager } from '../../../worker/DatabaseManager.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { logger } from '../../../../utils/logger.js';
 
 export class TagRoutes extends BaseRouteHandler {
   constructor(
-    private sessionStore: SessionStore
+    private dbManager: DatabaseManager
   ) {
     super();
+  }
+
+  /**
+   * Get session store lazily to avoid initialization order issues
+   */
+  private get sessionStore() {
+    return this.dbManager.getSessionStore();
   }
 
   setupRoutes(app: express.Application): void {
