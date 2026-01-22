@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs (will be built in container)
+dist/
+*.tgz
+
+# Development files
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# Documentation
+docs/
+*.md
+!README.md
+LICENSE
+
+# Test files
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Environment and config
+.env
+.env.*
+*.local
+.claude/
+private/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Debug files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
