@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.0] - 2026-01-22
+
+### Features
+- Added CLI commands for generating and cleaning files.
+
+
 ## [1.17.0] - 2026-01-22
 
 ### Features
