@@ -1,5 +1,6 @@
 import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { ChartTooltip } from './ChartTooltip';
 
 interface TypesChartProps {
   data: Array<{ type: string; count: number; color: string }>;
@@ -29,8 +30,8 @@ export function TypesChart({ data }: TypesChartProps) {
   }));
 
   return (
-    <div className="h-48">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-48 w-full">
+      <ResponsiveContainer width="100%" height="100%" debounce={50}>
         <PieChart>
           <Pie
             data={chartData}
@@ -47,13 +48,11 @@ export function TypesChart({ data }: TypesChartProps) {
             ))}
           </Pie>
           <Tooltip
-            contentStyle={{
-              backgroundColor: 'oklch(var(--b2))',
-              border: '1px solid oklch(var(--b3))',
-              borderRadius: '0.5rem',
-              fontSize: '0.875rem',
-            }}
-            formatter={(value: number) => [value, 'Count']}
+            content={
+              <ChartTooltip
+                valueFormatter={(value) => [value, 'Count']}
+              />
+            }
           />
           <Legend
             layout="horizontal"

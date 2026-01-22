@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { ChartTooltip } from './ChartTooltip';
 
 interface TimelineChartProps {
   data: Array<{ date: string; count: number }>;
@@ -32,8 +33,8 @@ export function TimelineChart({ data }: TimelineChartProps) {
   }));
 
   return (
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%" debounce={50}>
         <LineChart data={formattedData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-base-content/10" />
           <XAxis
@@ -51,15 +52,12 @@ export function TimelineChart({ data }: TimelineChartProps) {
             allowDecimals={false}
           />
           <Tooltip
-            contentStyle={{
-              backgroundColor: 'oklch(var(--b2))',
-              border: '1px solid oklch(var(--b3))',
-              borderRadius: '0.5rem',
-              fontSize: '0.875rem',
-            }}
-            labelStyle={{ color: 'oklch(var(--bc))' }}
-            formatter={(value: number) => [value, 'Memories']}
-            labelFormatter={(label) => `Date: ${label}`}
+            content={
+              <ChartTooltip
+                labelFormatter={(label) => `Date: ${label}`}
+                valueFormatter={(value) => [value, 'Memories']}
+              />
+            }
           />
           <Line
             type="monotone"

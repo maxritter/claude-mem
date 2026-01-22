@@ -1,9 +1,35 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
+interface ProjectTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: { project: string; count: number; tokens: number } }>;
+}
+
+function ProjectTooltip({ active, payload }: ProjectTooltipProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const data = payload[0].payload;
+  return (
+    <div className="bg-base-200 border border-base-300 rounded-lg px-3 py-2 shadow-lg text-sm">
+      <p className="text-base-content font-medium">{data.project}</p>
+      <p className="text-base-content/80">{data.count} memories</p>
+      <p className="text-base-content/60 text-xs">{data.tokens.toLocaleString()} tokens</p>
+    </div>
+  );
+}
+
 interface ProjectsChartProps {
   data: Array<{ project: string; count: number; tokens: number }>;
 }
+
+// Vibrant color palette for project bars
+const BAR_COLORS = [
+  '#6366f1', // indigo
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#f97316', // orange
+  '#22c55e', // green
+];
 
 export function ProjectsChart({ data }: ProjectsChartProps) {
   if (!data || data.length === 0) {
@@ -21,8 +47,8 @@ export function ProjectsChart({ data }: ProjectsChartProps) {
   }));
 
   return (
-    <div className="h-48">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="h-48 w-full">
+      <ResponsiveContainer width="100%" height="100%" debounce={50}>
         <BarChart
           data={chartData}
           layout="vertical"
@@ -45,35 +71,12 @@ export function ProjectsChart({ data }: ProjectsChartProps) {
             axisLine={false}
             width={80}
           />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: 'oklch(var(--b2))',
-              border: '1px solid oklch(var(--b3))',
-              borderRadius: '0.5rem',
-              fontSize: '0.875rem',
-            }}
-            formatter={(value: number, name: string, props: { payload: { project: string; tokens: number } }) => {
-              if (name === 'count') {
-                return [
-                  <span key="count">
-                    {value} memories
-                    <br />
-                    <span className="text-base-content/50">
-                      {props.payload.tokens.toLocaleString()} tokens
-                    </span>
-                  </span>,
-                  props.payload.project,
-                ];
-              }
-              return [value, name];
-            }}
-            labelFormatter={() => ''}
-          />
+          <Tooltip content={<ProjectTooltip />} />
           <Bar dataKey="count" radius={[0, 4, 4, 0]}>
             {chartData.map((_, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={`oklch(var(--p) / ${1 - index * 0.15})`}
+                fill={BAR_COLORS[index % BAR_COLORS.length]}
               />
             ))}
           </Bar>
