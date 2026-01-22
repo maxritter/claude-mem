@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.8] - 2026-01-22
+
+### Bug Fixes
+- Fixed syncing to additional Claude environment marketplaces
+
+
 ## [1.3.7] - 2026-01-22
 
 ### Bug Fixes
