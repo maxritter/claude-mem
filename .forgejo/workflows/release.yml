@@ -391,12 +391,13 @@ jobs:
 
           echo "Marketplace updated to v${VERSION}"
 
-  # Build and push Docker image
+  # Build and push Docker image (optional - requires Docker-in-Docker on runner)
   docker:
     name: Build Docker Image
     runs-on: [docker, light]
     needs: release
     if: needs.release.result == 'success'
+    continue-on-error: true  # Don't fail release if Docker build fails
 
     steps:
       - name: Checkout
