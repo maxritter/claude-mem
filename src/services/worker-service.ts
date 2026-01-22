@@ -74,6 +74,8 @@ import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
 import { TagRoutes } from './worker/http/routes/TagRoutes.js';
 import { BackupRoutes } from './worker/http/routes/BackupRoutes.js';
 import { RetentionRoutes } from './worker/http/routes/RetentionRoutes.js';
+import { MetricsRoutes } from './worker/http/routes/MetricsRoutes.js';
+import { MetricsService } from './worker/MetricsService.js';
 
 /**
  * Build JSON status output for hook framework communication.
@@ -124,6 +126,7 @@ export class WorkerService {
 
   // Route handlers
   private searchRoutes: SearchRoutes | null = null;
+  private metricsService: MetricsService | null = null;
 
   // Initialization tracking
   private initializationComplete: Promise<void>;
@@ -210,6 +213,10 @@ export class WorkerService {
     this.server.registerRoutes(new TagRoutes(this.dbManager));
     this.server.registerRoutes(new BackupRoutes(this.dbManager));
     this.server.registerRoutes(new RetentionRoutes(this.dbManager));
+
+    // Metrics routes
+    this.metricsService = new MetricsService(this.dbManager, this.sessionManager, this.startTime);
+    this.server.registerRoutes(new MetricsRoutes(this.metricsService));
 
     // Early handler for /api/context/inject to avoid 404 during startup
     this.server.app.get('/api/context/inject', async (req, res, next) => {
