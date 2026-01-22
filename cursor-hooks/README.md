@@ -241,6 +241,5 @@ Install on Ubuntu: `apt-get install jq curl`
 
 ## See Also
 
-- [Claude-Mem Documentation](https://docs.claude-mem.ai)
+- [Claude-Mem Documentation](https://github.com/customable/claude-mem#readme)
 - [Cursor Hooks Reference](../docs/context/cursor-hooks-reference.md)
-- [Claude-Mem Architecture](https://docs.claude-mem.ai/architecture/overview)

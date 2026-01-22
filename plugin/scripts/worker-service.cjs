@@ -824,7 +824,7 @@ Examples:
   claude-mem cursor uninstall            # Remove from current project
   claude-mem cursor status               # Check if hooks are installed
 
-For more info: https://docs.claude-mem.ai/cursor
+For more info: https://github.com/customable/claude-mem#readme
       `),0}}am();var c6=require("bun:sqlite");Er();Pe();var jy=class{db;constructor(e){e||(Pn(Gr),e=vd),this.db=new c6.Database(e),this.db.run("PRAGMA journal_mode = WAL"),this.ensureFTSTables()}ensureFTSTables(){this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts'").all().some(n=>n.name==="observations_fts"||n.name==="session_summaries_fts")||(E.info("DB","Creating FTS5 tables"),this.db.run(`
       CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
         title,
