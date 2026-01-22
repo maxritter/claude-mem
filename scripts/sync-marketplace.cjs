@@ -14,6 +14,12 @@ const os = require('os');
 const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'customable');
 const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'customable', 'claude-mem');
 
+// Additional marketplace paths for other Claude environments
+const ADDITIONAL_MARKETPLACE_PATHS = [
+  path.join(os.homedir(), '.config', 'claude-work', 'plugins', 'marketplaces', 'customable'),
+  path.join(os.homedir(), '.config', 'claude-lab', 'plugins', 'marketplaces', 'customable'),
+];
+
 // Additional cache paths for other Claude environments
 const ADDITIONAL_CACHE_PATHS = [
   path.join(os.homedir(), '.config', 'claude-work', 'plugins', 'cache', 'customable', 'claude-mem'),
@@ -76,6 +82,25 @@ try {
     'cd ~/.claude/plugins/marketplaces/customable/ && npm install',
     { stdio: 'inherit' }
   );
+
+  // Sync to additional marketplace paths (e.g., claude-lab, claude-work)
+  for (const additionalMarketplacePath of ADDITIONAL_MARKETPLACE_PATHS) {
+    if (existsSync(additionalMarketplacePath) || existsSync(path.dirname(additionalMarketplacePath))) {
+      console.log(`Syncing to additional marketplace: ${additionalMarketplacePath}...`);
+      execSync(
+        `mkdir -p "${additionalMarketplacePath}" && rsync -av --delete --exclude=.git --exclude=/.mcp.json --exclude=/node_modules ./ "${additionalMarketplacePath}/"`,
+        { stdio: 'inherit' }
+      );
+      // Run npm install in additional marketplace
+      if (existsSync(path.join(additionalMarketplacePath, 'package.json'))) {
+        console.log(`Running npm install in ${additionalMarketplacePath}...`);
+        execSync(
+          `cd "${additionalMarketplacePath}" && npm install`,
+          { stdio: 'inherit' }
+        );
+      }
+    }
+  }
 
   // Sync to cache folder with version
   const version = getPluginVersion();
