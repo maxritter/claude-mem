@@ -31,7 +31,7 @@ export class MigrationRunner {
     this.renameSessionIdColumns();
     this.repairSessionIdColumnRename();
     this.addFailedAtEpochColumn();
-    this.ensureGitBranchColumn();
+    
   }
 
   /**
@@ -90,7 +90,6 @@ export class MigrationRunner {
           discovery_tokens INTEGER DEFAULT 0,
           created_at TEXT NOT NULL,
           created_at_epoch INTEGER NOT NULL,
-          git_branch TEXT,
           FOREIGN KEY(memory_session_id) REFERENCES sdk_sessions(memory_session_id) ON DELETE CASCADE
         );
 
@@ -98,7 +97,6 @@ export class MigrationRunner {
         CREATE INDEX IF NOT EXISTS idx_observations_project ON observations(project);
         CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(type);
         CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at_epoch DESC);
-        CREATE INDEX IF NOT EXISTS idx_observations_git_branch ON observations(git_branch);
 
         CREATE TABLE IF NOT EXISTS session_summaries (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -574,23 +572,7 @@ export class MigrationRunner {
   }
 
   /**
-   * Ensure git_branch column exists on observations table (migration 21)
    * This column tracks which git branch work was done on.
    * Added as a reliable fix for databases migrated from thedotmack fork.
    */
-  private ensureGitBranchColumn(): void {
-    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(21) as SchemaVersion | undefined;
-    if (applied) return;
-
-    const tableInfo = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
-    const hasColumn = tableInfo.some(col => col.name === 'git_branch');
-
-    if (!hasColumn) {
-      this.db.run('ALTER TABLE observations ADD COLUMN git_branch TEXT');
-      this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_git_branch ON observations(git_branch)');
-      logger.info('DB', 'Added git_branch column to observations table');
-    }
-
-    this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(21, new Date().toISOString());
-  }
 }

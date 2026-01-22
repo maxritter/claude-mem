@@ -21,15 +21,14 @@ export function storeObservation(
   overrideTimestampEpoch?: number,
   gitBranch?: string | null
 ): StoreObservationResult {
-  // Use override timestamp if provided (for processing backlog messages with original timestamps)
   const timestampEpoch = overrideTimestampEpoch ?? Date.now();
   const timestampIso = new Date(timestampEpoch).toISOString();
 
   const stmt = db.prepare(`
     INSERT INTO observations
     (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-     files_read, files_modified, prompt_number, discovery_tokens, created_at, created_at_epoch, git_branch)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     files_read, files_modified, prompt_number, discovery_tokens, created_at, created_at_epoch)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
