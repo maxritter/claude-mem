@@ -1,15 +1,25 @@
 /**
  * Authentication Middleware for Remote Worker Access
  *
- * Validates bearer tokens for remote client connections.
+ * Validates bearer tokens or session cookies for remote client connections.
  * Local connections (127.0.0.1, ::1) bypass authentication.
  */
 
+import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../../utils/logger.js';
 import type { RemoteAuthScope } from '../../../types/remote/index.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../shared/paths.js';
+
+/** Session cookie name */
+const SESSION_COOKIE = 'claude_mem_session';
+
+/** Session expiry in milliseconds (24 hours) */
+const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+/** In-memory session store (simple for now, could be extended to persistent storage) */
+const sessions = new Map<string, { createdAt: number; ip: string }>();
 
 /**
  * Extended Express Request with auth info
@@ -48,9 +58,66 @@ function getConfiguredToken(): string {
 }
 
 /**
+ * Generate a secure session ID
+ */
+function generateSessionId(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Validate session cookie
+ */
+function isValidSession(sessionId: string, clientIp: string): boolean {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+
+  // Check expiry
+  if (Date.now() - session.createdAt > SESSION_EXPIRY_MS) {
+    sessions.delete(sessionId);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Create a new session
+ */
+export function createSession(clientIp: string): string {
+  const sessionId = generateSessionId();
+  sessions.set(sessionId, {
+    createdAt: Date.now(),
+    ip: clientIp,
+  });
+  return sessionId;
+}
+
+/**
+ * Invalidate a session
+ */
+export function invalidateSession(sessionId: string): void {
+  sessions.delete(sessionId);
+}
+
+/**
+ * Clean up expired sessions (call periodically)
+ */
+export function cleanupSessions(): void {
+  const now = Date.now();
+  for (const [id, session] of sessions.entries()) {
+    if (now - session.createdAt > SESSION_EXPIRY_MS) {
+      sessions.delete(id);
+    }
+  }
+}
+
+// Cleanup expired sessions every hour
+setInterval(cleanupSessions, 60 * 60 * 1000);
+
+/**
  * Authentication middleware
  * - Localhost requests: Always allowed with full access
- * - Remote requests: Require valid bearer token
+ * - Remote requests: Require valid bearer token OR session cookie
  */
 export function authMiddleware(
   req: AuthenticatedRequest,
@@ -66,61 +133,55 @@ export function authMiddleware(
     return next();
   }
 
-  // Check for bearer token
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
+  // Check for session cookie first (for browser access)
+  const sessionId = req.cookies?.[SESSION_COOKIE];
+  if (sessionId && isValidSession(sessionId, clientIp)) {
+    req.auth = {
+      isLocal: false,
+      clientId: 'web-session',
+      scopes: ['*'],
+    };
+    return next();
+  }
+
+  // Check for bearer token (for API access)
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    logger.warn('SECURITY', 'Remote request missing bearer token', {
-      path: req.path,
-      ip: req.ip,
-    });
-    res.status(401).json({
-      code: 'UNAUTHORIZED',
-      message: 'Bearer token required for remote access',
-    });
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    const configuredToken = getConfiguredToken();
+
+    if (configuredToken && token === configuredToken) {
+      req.auth = {
+        isLocal: false,
+        clientId: 'api-client',
+        scopes: ['*'],
+      };
+      return next();
+    }
+  }
+
+  // No valid authentication - check if this is a browser request
+  const acceptHeader = req.headers.accept || '';
+  const isBrowserRequest = acceptHeader.includes('text/html');
+
+  // For browser requests to the viewer, redirect to login
+  if (isBrowserRequest && (req.path === '/' || req.path === '/viewer.html')) {
+    res.redirect('/login');
     return;
   }
 
-  const token = authHeader.slice(7); // Remove 'Bearer ' prefix
-  const configuredToken = getConfiguredToken();
-
-  // If no token is configured, reject all remote auth attempts
-  if (!configuredToken) {
-    logger.warn('SECURITY', 'Remote access attempted but no token configured', {
-      path: req.path,
-      ip: req.ip,
-    });
-    res.status(401).json({
-      code: 'UNAUTHORIZED',
-      message: 'Remote access not configured',
-    });
-    return;
-  }
-
-  // Validate token
-  if (token !== configuredToken) {
-    logger.warn('SECURITY', 'Invalid bearer token', {
-      path: req.path,
-      ip: req.ip,
-    });
-    res.status(401).json({
-      code: 'UNAUTHORIZED',
-      message: 'Invalid bearer token',
-    });
-    return;
-  }
-
-  req.auth = {
-    isLocal: false,
-    clientId: 'remote-client',
-    scopes: ['*'],
-  };
-
-  logger.debug('SECURITY', 'Remote request authenticated', {
+  // For API requests, return 401
+  logger.warn('SECURITY', 'Unauthorized request', {
     path: req.path,
-    clientId: 'remote-client',
+    ip: clientIp,
   });
 
-  next();
+  res.status(401).json({
+    code: 'UNAUTHORIZED',
+    message: 'Authentication required',
+  });
 }
 
 /**
@@ -156,3 +217,19 @@ export function requireScope(scope: RemoteAuthScope) {
     });
   };
 }
+
+/**
+ * Get the session cookie name (for use in routes)
+ */
+export function getSessionCookieName(): string {
+  return SESSION_COOKIE;
+}
+
+/**
+ * Check if remote auth is configured
+ */
+export function isRemoteAuthConfigured(): boolean {
+  return !!getConfiguredToken();
+}
+
+export { getConfiguredToken };

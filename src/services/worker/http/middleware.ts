@@ -7,6 +7,7 @@
 
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { getPackageRoot } from '../../../shared/paths.js';
 import { logger } from '../../../utils/logger.js';
@@ -26,6 +27,9 @@ export function createMiddleware(
 
   // CORS
   middlewares.push(cors());
+
+  // Cookie parsing for session management
+  middlewares.push(cookieParser());
 
   // HTTP request/response logging
   middlewares.push((req: Request, res: Response, next: NextFunction) => {

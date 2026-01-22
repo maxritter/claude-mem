@@ -75,6 +75,7 @@ import { TagRoutes } from './worker/http/routes/TagRoutes.js';
 import { BackupRoutes } from './worker/http/routes/BackupRoutes.js';
 import { RetentionRoutes } from './worker/http/routes/RetentionRoutes.js';
 import { MetricsRoutes } from './worker/http/routes/MetricsRoutes.js';
+import { AuthRoutes } from './worker/http/routes/AuthRoutes.js';
 import { MetricsService } from './worker/MetricsService.js';
 
 /**
@@ -203,6 +204,9 @@ export class WorkerService {
    * Register all route handlers with the server
    */
   private registerRoutes(): void {
+    // Auth routes (must be registered early to handle login page before other routes)
+    this.server.registerRoutes(new AuthRoutes());
+
     // Standard routes
     this.server.registerRoutes(new ViewerRoutes(this.sseBroadcaster, this.dbManager, this.sessionManager));
     this.server.registerRoutes(new SessionRoutes(this.sessionManager, this.dbManager, this.sdkAgent, this.geminiAgent, this.openRouterAgent, this.mistralAgent, this.sessionEventBroadcaster, this));
