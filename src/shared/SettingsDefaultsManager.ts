@@ -62,6 +62,12 @@ export interface SettingsDefaults {
   CLAUDE_MEM_EMBEDDING_MODEL: string;  // Embedding model for Qdrant (e.g., 'Xenova/all-MiniLM-L6-v2')
   // Project Exclusion
   CLAUDE_MEM_EXCLUDE_PROJECTS: string;  // JSON array of glob patterns to exclude projects (e.g., '["temp-*", "test-?"]')
+  // Remote Worker Configuration
+  CLAUDE_MEM_REMOTE_MODE: boolean;       // Enable remote worker mode (default: false)
+  CLAUDE_MEM_REMOTE_URL: string;         // Remote worker URL (e.g., "https://claude-mem.example.com")
+  CLAUDE_MEM_REMOTE_TOKEN: string;       // Bearer token for authentication
+  CLAUDE_MEM_REMOTE_VERIFY_SSL: boolean; // Verify SSL certificates (default: true)
+  CLAUDE_MEM_REMOTE_TIMEOUT_MS: string;  // Request timeout in milliseconds (default: 30000)
 }
 
 export class SettingsDefaultsManager {
@@ -118,6 +124,12 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_EMBEDDING_MODEL: 'Xenova/all-MiniLM-L6-v2',  // Default embedding model for Qdrant
     // Project Exclusion
     CLAUDE_MEM_EXCLUDE_PROJECTS: '[]',  // Empty array by default - no projects excluded
+    // Remote Worker Configuration
+    CLAUDE_MEM_REMOTE_MODE: false,           // Local mode by default
+    CLAUDE_MEM_REMOTE_URL: '',               // Empty = not configured
+    CLAUDE_MEM_REMOTE_TOKEN: '',             // Empty = no auth
+    CLAUDE_MEM_REMOTE_VERIFY_SSL: true,      // Verify SSL by default
+    CLAUDE_MEM_REMOTE_TIMEOUT_MS: '30000',   // 30 second timeout
   };
 
   /**
@@ -203,6 +215,8 @@ export class SettingsDefaultsManager {
         'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
         'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
         'CLAUDE_MEM_CHROMA_ENABLED',
+        'CLAUDE_MEM_REMOTE_MODE',
+        'CLAUDE_MEM_REMOTE_VERIFY_SSL',
       ];
 
       // Merge file settings with defaults (flat schema)

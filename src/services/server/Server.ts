@@ -16,6 +16,8 @@ import path from 'path';
 import { logger } from '../../utils/logger.js';
 import { createMiddleware, summarizeRequestBody, requireLocalhost } from './Middleware.js';
 import { errorHandler, notFoundHandler } from './ErrorHandler.js';
+import { authMiddleware, rateLimitMiddleware } from './middleware/index.js';
+import { getWorkerBind } from '../../shared/worker-utils.js';
 
 // Build-time injected version constant (set by esbuild define)
 declare const __DEFAULT_PACKAGE_VERSION__: string;
@@ -136,6 +138,17 @@ export class Server {
   private setupMiddleware(): void {
     const middlewares = createMiddleware(summarizeRequestBody);
     middlewares.forEach(mw => this.app.use(mw));
+
+    // Add rate limiting for remote requests (localhost bypassed)
+    this.app.use(rateLimitMiddleware(1000, 60000));
+
+    // Add authentication middleware only when binding to non-localhost
+    // This allows network access with token-based authentication
+    const bind = getWorkerBind();
+    if (bind !== '127.0.0.1' && bind !== 'localhost') {
+      logger.info('SYSTEM', 'Enabling authentication middleware for network access', { bind });
+      this.app.use(authMiddleware);
+    }
   }
 
   /**

@@ -206,7 +206,7 @@ export class WorkerService {
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'claude-mem'));
-    this.server.registerRoutes(new TagRoutes(this.dbManager.getSessionStore()));
+    this.server.registerRoutes(new TagRoutes(this.dbManager));
     this.server.registerRoutes(new BackupRoutes(this.dbManager));
 
     // Early handler for /api/context/inject to avoid 404 during startup
