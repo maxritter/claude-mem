@@ -432,5 +432,6 @@ jobs:
           tags: |
             git.customable.host/customable/claude-mem:latest
             git.customable.host/customable/claude-mem:${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Note: GHA cache not available on Forgejo, using registry cache instead
+          cache-from: type=registry,ref=git.customable.host/customable/claude-mem:buildcache
+          cache-to: type=registry,ref=git.customable.host/customable/claude-mem:buildcache,mode=max
