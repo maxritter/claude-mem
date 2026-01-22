@@ -5,8 +5,9 @@ interface IconProps {
   icon: string;
   size?: number;
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export function Icon({ icon, size = 20, className = '' }: IconProps) {
-  return <IconifyIcon icon={icon} width={size} height={size} className={className} />;
+export function Icon({ icon, size = 20, className = '', style }: IconProps) {
+  return <IconifyIcon icon={icon} width={size} height={size} className={className} style={style} />;
 }

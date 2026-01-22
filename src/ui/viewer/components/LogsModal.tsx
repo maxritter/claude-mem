@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Icon } from './ui';
 
 // Log levels and components matching the logger.ts definitions
 type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -342,7 +343,7 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
             disabled={isLoading}
             title="Refresh logs"
           >
-            <span className={`iconify lucide--refresh-cw size-3.5 ${isLoading ? 'animate-spin' : ''}`}></span>
+            <Icon icon="lucide:refresh-cw" size={14} className={isLoading ? 'animate-spin' : ''} />
           </button>
           <button
             className="btn btn-ghost btn-xs btn-square"
@@ -352,7 +353,7 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
             }}
             title="Scroll to bottom"
           >
-            <span className="iconify lucide--arrow-down size-3.5"></span>
+            <Icon icon="lucide:arrow-down" size={14} />
           </button>
           <button
             className="btn btn-ghost btn-xs btn-square hover:text-error"
@@ -360,14 +361,14 @@ export function LogsDrawer({ isOpen, onClose }: LogsDrawerProps) {
             disabled={isLoading}
             title="Clear logs"
           >
-            <span className="iconify lucide--trash-2 size-3.5"></span>
+            <Icon icon="lucide:trash-2" size={14} />
           </button>
           <button
             className="btn btn-ghost btn-xs btn-square"
             onClick={onClose}
             title="Close console"
           >
-            <span className="iconify lucide--x size-3.5"></span>
+            <Icon icon="lucide:x" size={14} />
           </button>
         </div>
       </div>
