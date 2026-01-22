@@ -55,6 +55,7 @@ export class DataRoutes extends BaseRouteHandler {
     // Pending queue management endpoints
     app.get('/api/pending-queue', this.handleGetPendingQueue.bind(this));
     app.post('/api/pending-queue/process', this.handleProcessPendingQueue.bind(this));
+    app.post('/api/pending-queue/:id/retry', this.handleRetryMessage.bind(this));
     app.delete('/api/pending-queue/failed', this.handleClearFailedQueue.bind(this));
     app.delete('/api/pending-queue/all', this.handleClearAllQueue.bind(this));
 
@@ -567,5 +568,31 @@ export class DataRoutes extends BaseRouteHandler {
       success: true,
       clearedCount
     });
+  });
+
+  /**
+   * Retry a failed message
+   * POST /api/pending-queue/:id/retry
+   * Resets the message to pending status for reprocessing
+   */
+  private handleRetryMessage = this.wrapHandler((req: Request, res: Response): void => {
+    const messageId = parseInt(req.params.id, 10);
+
+    if (isNaN(messageId)) {
+      res.status(400).json({ error: 'Invalid message ID' });
+      return;
+    }
+
+    const { PendingMessageStore } = require('../../../sqlite/PendingMessageStore.js');
+    const pendingStore = new PendingMessageStore(this.dbManager.getSessionStore().db, 3);
+
+    const success = pendingStore.retryMessage(messageId);
+
+    if (success) {
+      logger.info('QUEUE', 'Retried failed message', { messageId });
+      res.json({ success: true, messageId });
+    } else {
+      res.status(404).json({ error: 'Message not found or not in failed status' });
+    }
   });
 }
