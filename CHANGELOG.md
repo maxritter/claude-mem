@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.1] - 2026-01-22
+
+### Bug Fixes
+- Fixed macOS rsync and Bun stdin issues
+- Added pip fallback for Chroma MCP in sandbox environments
+
+
 ## [1.16.0] - 2026-01-22
 
 ### Features
