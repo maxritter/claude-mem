@@ -324,9 +324,10 @@ export class WorkerService {
         logger.error('SYSTEM', 'Auto-recovery of pending queues failed', {}, error as Error);
       });
 
-      // Start periodic cleanup for zombie/orphaned processes (every 15 minutes)
+      // Start periodic cleanup for zombie/orphaned processes (every 5 minutes)
       // This catches processes that get re-parented to init/PID 1 after parent death
-      const CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+      // Reduced from 15 to 5 minutes for faster cleanup to prevent RAM accumulation
+      const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
       this.cleanupInterval = setInterval(async () => {
         try {
           await cleanupOrphanedProcesses();
