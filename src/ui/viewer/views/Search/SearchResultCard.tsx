@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card, CardBody, Badge, Icon } from '../../components/ui';
+import { TagChip } from '../../components/Tags';
 
 interface SearchResult {
   id: number;
@@ -10,6 +11,7 @@ interface SearchResult {
   timestamp: string;
   score: number;
   obsType?: string;
+  tags?: string[];
 }
 
 interface SearchResultCardProps {
@@ -78,6 +80,16 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
             </div>
             <h3 className="font-medium truncate">{result.title}</h3>
             <p className="text-sm text-base-content/60 mt-1 line-clamp-2">{result.content}</p>
+
+            {/* Tags */}
+            {result.tags && result.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {result.tags.map(tag => (
+                  <TagChip key={tag} name={tag} size="xs" />
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-4 mt-3 text-xs text-base-content/50">
               {result.project && (
                 <span className="flex items-center gap-1">
