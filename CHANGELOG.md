@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.2] - 2026-01-22
+
+### Bug Fixes
+- Fixed package.json metadata for Customable fork
+
+
 ## [1.2.1] - 2026-01-22
 
 ### Bug Fixes
