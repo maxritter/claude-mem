@@ -16,6 +16,9 @@ interface MemoryCardProps {
   viewMode: 'grid' | 'list';
   onDelete?: (id: number) => void;
   onView?: (id: number) => void;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelection?: (id: number) => void;
 }
 
 const typeConfig: Record<string, { icon: string; variant: string; color: string }> = {
@@ -32,7 +35,15 @@ const typeConfig: Record<string, { icon: string; variant: string; color: string 
 
 const defaultConfig = { icon: 'lucide:circle', variant: 'secondary', color: 'text-secondary' };
 
-export function MemoryCard({ memory, viewMode, onDelete, onView }: MemoryCardProps) {
+export function MemoryCard({
+  memory,
+  viewMode,
+  onDelete,
+  onView,
+  selectionMode,
+  isSelected,
+  onToggleSelection,
+}: MemoryCardProps) {
   const config = typeConfig[memory.type] || defaultConfig;
   const isGrid = viewMode === 'grid';
 
@@ -42,13 +53,36 @@ export function MemoryCard({ memory, viewMode, onDelete, onView }: MemoryCardPro
     { label: 'Delete', onClick: () => onDelete?.(memory.id), icon: <Icon icon="lucide:trash-2" size={16} /> },
   ];
 
+  const handleCardClick = () => {
+    if (selectionMode) {
+      onToggleSelection?.(memory.id);
+    }
+  };
+
   return (
-    <Card className={`hover:shadow-md transition-shadow ${isGrid ? '' : 'flex flex-row'}`}>
+    <Card
+      className={`hover:shadow-md transition-shadow ${isGrid ? '' : 'flex flex-row'} ${
+        selectionMode ? 'cursor-pointer' : ''
+      } ${isSelected ? 'ring-2 ring-primary' : ''}`}
+      onClick={handleCardClick}
+    >
       <CardBody className={isGrid ? '' : 'flex flex-row items-start gap-4 flex-1'}>
         <div className={`flex items-start gap-3 ${isGrid ? 'mb-3' : 'flex-1'}`}>
-          <div className={`p-2 rounded-lg bg-base-200 ${config.color}`}>
-            <Icon icon={config.icon} size={18} />
-          </div>
+          {selectionMode ? (
+            <div className="flex items-center justify-center w-8 h-8 flex-shrink-0">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-primary"
+                checked={isSelected}
+                onChange={() => onToggleSelection?.(memory.id)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          ) : (
+            <div className={`p-2 rounded-lg bg-base-200 ${config.color}`}>
+              <Icon icon={config.icon} size={18} />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <Badge variant={config.variant as any} size="xs">{memory.type}</Badge>

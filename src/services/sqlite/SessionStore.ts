@@ -995,6 +995,29 @@ export class SessionStore {
   }
 
   /**
+   * Delete a single observation by ID
+   * @returns true if deleted, false if not found
+   */
+  deleteObservation(id: number): boolean {
+    const stmt = this.db.prepare('DELETE FROM observations WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Bulk delete observations by IDs
+   * @returns number of deleted observations
+   */
+  deleteObservations(ids: number[]): number {
+    if (ids.length === 0) return 0;
+
+    const placeholders = ids.map(() => '?').join(',');
+    const stmt = this.db.prepare(`DELETE FROM observations WHERE id IN (${placeholders})`);
+    const result = stmt.run(...ids);
+    return result.changes;
+  }
+
+  /**
    * Get summary for a specific session
    */
   getSummaryForSession(memorySessionId: string): {
