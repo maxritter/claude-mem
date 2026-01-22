@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.1] - 2026-01-22
+
+### Bug Fixes
+- Fixed CI to include plugin/package.json in release version updates
+
+### Improvements
+- Synced marketplace.json version to 1.2.2
+- Completed migration from thedotmack to customable
+
+### Documentation
+- Replaced docs.claude-mem.ai links with GitHub README links
+
+
 ## [1.3.0] - 2026-01-22
 
 ### Features
