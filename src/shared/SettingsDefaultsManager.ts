@@ -20,7 +20,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORKER_BIND: string;  // Server bind address (0.0.0.0 for network access)
   CLAUDE_MEM_SKIP_TOOLS: string;
   // AI Provider Configuration
-  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openrouter' | 'mistral'
+  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openrouter' | 'mistral' | 'openai'
   CLAUDE_MEM_GEMINI_API_KEY: string;
   CLAUDE_MEM_GEMINI_MODEL: string;  // 'gemini-2.5-flash-lite' | 'gemini-2.5-flash' | 'gemini-3-flash'
   CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: boolean;  // Enable rate limiting for free tier
@@ -32,6 +32,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OPENROUTER_MAX_TOKENS: string;
   CLAUDE_MEM_MISTRAL_API_KEY: string;
   CLAUDE_MEM_MISTRAL_MODEL: string;  // 'mistral-small-latest' | 'mistral-medium-latest' | 'mistral-large-latest'
+  CLAUDE_MEM_OPENAI_API_KEY: string;
+  CLAUDE_MEM_OPENAI_MODEL: string;  // 'gpt-4o-mini' | 'gpt-4o' | 'gpt-4-turbo'
+  CLAUDE_MEM_OPENAI_BASE_URL: string;  // Custom base URL for Azure/compatible APIs
   // System Configuration
   CLAUDE_MEM_DATA_DIR: string;
   CLAUDE_MEM_LOG_LEVEL: string;
@@ -100,6 +103,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
     CLAUDE_MEM_MISTRAL_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_MISTRAL_MODEL: 'mistral-small-latest',  // Default Mistral model (cost-effective)
+    CLAUDE_MEM_OPENAI_API_KEY: '',  // Empty by default, can be set via UI or env
+    CLAUDE_MEM_OPENAI_MODEL: 'gpt-4o-mini',  // Default OpenAI model (cost-effective)
+    CLAUDE_MEM_OPENAI_BASE_URL: '',  // Empty = use default OpenAI API, set for Azure/compatible
     // System Configuration
     CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
     CLAUDE_MEM_LOG_LEVEL: 'INFO',
