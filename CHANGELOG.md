@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.19.0] - 2026-01-22
+
+### Features
+- Auto-register hooks in `settings.json` during install
+- Batch processing support
+
+### Improvements
+- Performance improvements
+
+
 ## [1.18.4] - 2026-01-22
 
 ### Bug Fixes
