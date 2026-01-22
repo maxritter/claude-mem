@@ -66,6 +66,13 @@ export class DataRoutes extends BaseRouteHandler {
 
     // Export endpoint
     app.get('/api/export', this.handleExport.bind(this));
+
+    // Delete endpoints
+    app.delete('/api/observation/:id', this.handleDeleteObservation.bind(this));
+    app.post('/api/observations/delete', this.handleBulkDeleteObservations.bind(this));
+
+    // Retry individual message
+    app.post('/api/pending-queue/:id/retry', this.handleRetryMessage.bind(this));
   }
 
   /**
@@ -528,99 +535,204 @@ export class DataRoutes extends BaseRouteHandler {
 
   /**
    * Export all data for backup
-   * GET /api/export?project=<name>&format=json
+   * GET /api/export?project=<name>&format=json|csv|markdown&ids=1,2,3
    * Exports sessions, summaries, observations, and prompts
-   * Optional project filter
+   * Optional project filter and format selection
    */
   private handleExport = this.wrapHandler((req: Request, res: Response): void => {
     const project = req.query.project as string | undefined;
+    const format = (req.query.format as string || 'json').toLowerCase();
+    const idsParam = req.query.ids as string | undefined;
     const store = this.dbManager.getSessionStore();
     const db = store.db;
+
+    // Validate format
+    if (!['json', 'csv', 'markdown', 'md'].includes(format)) {
+      this.badRequest(res, 'Invalid format. Supported: json, csv, markdown');
+      return;
+    }
+
+    // Parse specific IDs if provided
+    let specificIds: number[] | undefined;
+    if (idsParam) {
+      specificIds = idsParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+    }
 
     // Build WHERE clause for project filter
     const projectFilter = project ? 'WHERE project = ?' : '';
     const projectParam = project ? [project] : [];
 
-    // Export sessions - get all or filter by project via observations
-    let sessions;
-    if (project) {
-      // Get session IDs that have observations in this project
-      const sessionIds = db.prepare(`
-        SELECT DISTINCT s.id
-        FROM sdk_sessions s
-        INNER JOIN observations o ON o.sdk_session_id = s.id
-        WHERE o.project = ?
-      `).all(project) as Array<{ id: number }>;
+    // Export observations (main export target)
+    let observations: any[];
+    if (specificIds && specificIds.length > 0) {
+      const placeholders = specificIds.map(() => '?').join(',');
+      observations = db.prepare(`SELECT * FROM observations WHERE id IN (${placeholders})`).all(...specificIds);
+    } else {
+      observations = db.prepare(`SELECT * FROM observations ${projectFilter}`).all(...projectParam);
+    }
 
-      if (sessionIds.length > 0) {
-        const ids = sessionIds.map(s => s.id);
-        sessions = db.prepare(`
-          SELECT * FROM sdk_sessions
-          WHERE id IN (${ids.map(() => '?').join(',')})
-        `).all(...ids);
+    // For JSON format, include full export with all related data
+    if (format === 'json') {
+      // Export sessions - get all or filter by project via observations
+      let sessions;
+      if (project) {
+        const sessionIds = db.prepare(`
+          SELECT DISTINCT s.id
+          FROM sdk_sessions s
+          INNER JOIN observations o ON o.sdk_session_id = s.id
+          WHERE o.project = ?
+        `).all(project) as Array<{ id: number }>;
+
+        if (sessionIds.length > 0) {
+          const ids = sessionIds.map(s => s.id);
+          sessions = db.prepare(`
+            SELECT * FROM sdk_sessions
+            WHERE id IN (${ids.map(() => '?').join(',')})
+          `).all(...ids);
+        } else {
+          sessions = [];
+        }
       } else {
-        sessions = [];
+        sessions = db.prepare('SELECT * FROM sdk_sessions').all();
       }
-    } else {
-      sessions = db.prepare('SELECT * FROM sdk_sessions').all();
+
+      // Export summaries
+      let summaries;
+      if (project) {
+        summaries = db.prepare(`
+          SELECT ss.* FROM session_summaries ss
+          INNER JOIN sdk_sessions s ON ss.sdk_session_id = s.id
+          INNER JOIN observations o ON o.sdk_session_id = s.id
+          WHERE o.project = ?
+          GROUP BY ss.id
+        `).all(project);
+      } else {
+        summaries = db.prepare('SELECT * FROM session_summaries').all();
+      }
+
+      // Export prompts
+      let prompts;
+      if (project) {
+        prompts = db.prepare(`
+          SELECT p.* FROM user_prompts p
+          INNER JOIN sdk_sessions s ON p.sdk_session_id = s.id
+          INNER JOIN observations o ON o.sdk_session_id = s.id
+          WHERE o.project = ?
+          GROUP BY p.id
+        `).all(project);
+      } else {
+        prompts = db.prepare('SELECT * FROM user_prompts').all();
+      }
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        project: project || 'all',
+        stats: {
+          sessions: sessions.length,
+          summaries: summaries.length,
+          observations: observations.length,
+          prompts: prompts.length
+        },
+        sessions,
+        summaries,
+        observations,
+        prompts
+      };
+
+      const filename = project
+        ? `claude-mem-export-${project}-${new Date().toISOString().split('T')[0]}.json`
+        : `claude-mem-export-${new Date().toISOString().split('T')[0]}.json`;
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/json');
+      res.json(exportData);
+      return;
     }
 
-    // Export summaries
-    let summaries;
-    if (project) {
-      summaries = db.prepare(`
-        SELECT ss.* FROM session_summaries ss
-        INNER JOIN sdk_sessions s ON ss.sdk_session_id = s.id
-        INNER JOIN observations o ON o.sdk_session_id = s.id
-        WHERE o.project = ?
-        GROUP BY ss.id
-      `).all(project);
-    } else {
-      summaries = db.prepare('SELECT * FROM session_summaries').all();
+    // CSV format
+    if (format === 'csv') {
+      const headers = ['id', 'type', 'title', 'project', 'created_at', 'text', 'files_read', 'files_modified'];
+      const csvRows = [headers.join(',')];
+
+      for (const obs of observations) {
+        const row = [
+          obs.id,
+          `"${(obs.type || '').replace(/"/g, '""')}"`,
+          `"${(obs.title || '').replace(/"/g, '""')}"`,
+          `"${(obs.project || '').replace(/"/g, '""')}"`,
+          obs.created_at || '',
+          `"${(obs.text || '').replace(/"/g, '""').substring(0, 500)}"`,
+          `"${(obs.files_read || '').replace(/"/g, '""')}"`,
+          `"${(obs.files_modified || '').replace(/"/g, '""')}"`,
+        ];
+        csvRows.push(row.join(','));
+      }
+
+      const filename = project
+        ? `claude-mem-export-${project}-${new Date().toISOString().split('T')[0]}.csv`
+        : `claude-mem-export-${new Date().toISOString().split('T')[0]}.csv`;
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'text/csv');
+      res.send(csvRows.join('\n'));
+      return;
     }
 
-    // Export observations
-    const observations = db.prepare(`
-      SELECT * FROM observations ${projectFilter}
-    `).all(...projectParam);
+    // Markdown format
+    if (format === 'markdown' || format === 'md') {
+      const lines: string[] = [
+        `# Claude-Mem Export`,
+        ``,
+        `**Exported:** ${new Date().toISOString()}`,
+        `**Project:** ${project || 'All'}`,
+        `**Total Memories:** ${observations.length}`,
+        ``,
+        `---`,
+        ``
+      ];
 
-    // Export prompts
-    let prompts;
-    if (project) {
-      prompts = db.prepare(`
-        SELECT p.* FROM user_prompts p
-        INNER JOIN sdk_sessions s ON p.sdk_session_id = s.id
-        INNER JOIN observations o ON o.sdk_session_id = s.id
-        WHERE o.project = ?
-        GROUP BY p.id
-      `).all(project);
-    } else {
-      prompts = db.prepare('SELECT * FROM user_prompts').all();
+      for (const obs of observations) {
+        const date = obs.created_at ? new Date(obs.created_at).toLocaleString() : 'Unknown';
+        lines.push(`## #${obs.id}: ${obs.title || 'Untitled'}`);
+        lines.push(``);
+        lines.push(`- **Type:** ${obs.type || 'unknown'}`);
+        lines.push(`- **Project:** ${obs.project || 'none'}`);
+        lines.push(`- **Date:** ${date}`);
+
+        if (obs.files_read) {
+          try {
+            const files = JSON.parse(obs.files_read);
+            if (files.length > 0) {
+              lines.push(`- **Files Read:** ${files.join(', ')}`);
+            }
+          } catch {}
+        }
+
+        if (obs.files_modified) {
+          try {
+            const files = JSON.parse(obs.files_modified);
+            if (files.length > 0) {
+              lines.push(`- **Files Modified:** ${files.join(', ')}`);
+            }
+          } catch {}
+        }
+
+        lines.push(``);
+        lines.push(obs.text || '*No content*');
+        lines.push(``);
+        lines.push(`---`);
+        lines.push(``);
+      }
+
+      const filename = project
+        ? `claude-mem-export-${project}-${new Date().toISOString().split('T')[0]}.md`
+        : `claude-mem-export-${new Date().toISOString().split('T')[0]}.md`;
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'text/markdown');
+      res.send(lines.join('\n'));
+      return;
     }
-
-    const exportData = {
-      exportedAt: new Date().toISOString(),
-      project: project || 'all',
-      stats: {
-        sessions: sessions.length,
-        summaries: summaries.length,
-        observations: observations.length,
-        prompts: prompts.length
-      },
-      sessions,
-      summaries,
-      observations,
-      prompts
-    };
-
-    // Set filename header for download
-    const filename = project
-      ? `claude-mem-export-${project}-${new Date().toISOString().split('T')[0]}.json`
-      : `claude-mem-export-${new Date().toISOString().split('T')[0]}.json`;
-
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'application/json');
-    res.json(exportData);
   });
 
   /**
@@ -716,13 +828,12 @@ export class DataRoutes extends BaseRouteHandler {
   });
 
   /**
-   * Retry a failed message
+* Retry a failed message
    * POST /api/pending-queue/:id/retry
    * Resets the message to pending status for reprocessing
    */
   private handleRetryMessage = this.wrapHandler((req: Request, res: Response): void => {
     const messageId = parseInt(req.params.id, 10);
-
     if (isNaN(messageId)) {
       res.status(400).json({ error: 'Invalid message ID' });
       return;
@@ -739,5 +850,56 @@ export class DataRoutes extends BaseRouteHandler {
     } else {
       res.status(404).json({ error: 'Message not found or not in failed status' });
     }
+  });
+
+  /**
+   * Delete a single observation
+   * DELETE /api/observation/:id
+   */
+  private handleDeleteObservation = this.wrapHandler((req: Request, res: Response): void => {
+    const id = this.parseIntParam(req, res, 'id');
+    if (id === null) return;
+
+    const store = this.dbManager.getSessionStore();
+    const deleted = store.deleteObservation(id);
+
+    if (deleted) {
+      logger.info('DATA', 'Deleted observation', { id });
+      res.json({ success: true, id });
+    } else {
+      this.notFound(res, `Observation #${id} not found`);
+    }
+  });
+
+  /**
+   * Bulk delete observations
+   * POST /api/observations/delete
+   * Body: { ids: number[] }
+   */
+  private handleBulkDeleteObservations = this.wrapHandler((req: Request, res: Response): void => {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids)) {
+      this.badRequest(res, 'ids must be an array of numbers');
+      return;
+    }
+
+    if (ids.length === 0) {
+      res.json({ success: true, deletedCount: 0 });
+      return;
+    }
+
+    // Validate all IDs are numbers
+    if (!ids.every(id => typeof id === 'number' && Number.isInteger(id))) {
+      this.badRequest(res, 'All ids must be integers');
+      return;
+    }
+
+    const store = this.dbManager.getSessionStore();
+    const deletedCount = store.deleteObservations(ids);
+
+    logger.info('DATA', 'Bulk deleted observations', { count: deletedCount, requested: ids.length });
+
+    res.json({ success: true, deletedCount });
   });
 }
