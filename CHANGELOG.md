@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.18.3] - 2026-01-22
+
+### Bug Fixes
+- Fixed auto-collapse of sidebar on mobile viewport
+- Improved chart styling and tooltips for dark mode
+
+### Improvements
+- Enhanced chart styling and mobile responsiveness
+
+
 ## [1.18.2] - 2026-01-22
 
 ### Bug Fixes
