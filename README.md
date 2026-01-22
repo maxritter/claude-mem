@@ -10,14 +10,14 @@
   <a href="https://github.com/customable/claude-mem">
     <img src="https://img.shields.io/badge/GitHub-customable%2Fclaude--mem-blue?logo=github" alt="GitHub">
   </a>
+  <a href="https://mem.customable.host">
+    <img src="https://img.shields.io/badge/Docs-mem.customable.host-blue?logo=readthedocs" alt="Documentation">
+  </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   </a>
   <a href="package.json">
     <img src="https://img.shields.io/badge/version-1.3.1-green.svg" alt="Version">
-  </a>
-  <a href="package.json">
-    <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg" alt="Node">
   </a>
 </p>
 
@@ -147,6 +147,7 @@ Original project: https://github.com/thedotmack/claude-mem
 
 ## Support
 
+- **Documentation**: [mem.customable.host](https://mem.customable.host)
 - **GitHub**: [github.com/customable/claude-mem](https://github.com/customable/claude-mem)
 - **Forgejo**: [git.customable.host/customable/claude-mem](https://git.customable.host/customable/claude-mem)
 - **Issues & PRs**: Please submit via [GitHub](https://github.com/customable/claude-mem/issues)
