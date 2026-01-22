@@ -473,22 +473,6 @@ export const migration007: Migration = {
  * Migration 008 - Add git_branch column for observation metadata
  * Tracks which git branch work was done on
  */
-export const migration008: Migration = {
-  version: 8,
-  up: (db: Database) => {
-    db.run(`ALTER TABLE observations ADD COLUMN git_branch TEXT`);
-
-    db.run(`CREATE INDEX IF NOT EXISTS idx_observations_git_branch ON observations(git_branch)`);
-
-    console.log('✅ Added git_branch column for branch tracking');
-  },
-
-  down: (db: Database) => {
-    // Note: SQLite doesn't support DROP COLUMN in all versions
-    console.log('⚠️  Warning: SQLite ALTER TABLE DROP COLUMN not fully supported');
-    console.log('⚠️  To rollback, manually recreate the observations table');
-  }
-};
 
 /**
  * Migration 021 - Add git_branch column (compatibility fix)
@@ -497,25 +481,6 @@ export const migration008: Migration = {
  * from the original thedotmack fork (which used versions up to 20).
  * It safely checks if the column exists before adding.
  */
-export const migration021: Migration = {
-  version: 21,
-  up: (db: Database) => {
-    const tableInfo = db.query('PRAGMA table_info(observations)').all() as Array<{ name: string }>;
-    const hasGitBranch = tableInfo.some(col => col.name === 'git_branch');
-
-    if (!hasGitBranch) {
-      db.run(`ALTER TABLE observations ADD COLUMN git_branch TEXT`);
-      db.run(`CREATE INDEX IF NOT EXISTS idx_observations_git_branch ON observations(git_branch)`);
-      console.log('✅ Added git_branch column for branch tracking');
-    } else {
-      console.log('✅ git_branch column already exists, skipping');
-    }
-  },
-
-  down: (db: Database) => {
-    console.log('⚠️  Warning: SQLite ALTER TABLE DROP COLUMN not fully supported');
-  }
-};
 
 /**
  * All migrations in order
@@ -528,6 +493,3 @@ export const migrations: Migration[] = [
   migration005,
   migration006,
   migration007,
-  migration008,
-  migration021
-];
