@@ -1,17 +1,18 @@
 /**
  * MistralAgent: Mistral-based observation extraction
  *
- * Alternative to SDKAgent that uses Mistral's native API directly
- * for extracting observations from tool usage.
+ * Uses the official Mistral SDK with built-in retry/rate-limit handling.
  *
  * Responsibility:
- * - Call Mistral REST API for observation extraction
+ * - Call Mistral API via SDK for observation extraction
  * - Parse XML responses (same format as Claude)
  * - Sync to database and Chroma
+ * - Automatic 429 rate-limit handling via SDK retry config
  */
 
 import path from 'path';
 import { homedir } from 'os';
+import { Mistral } from '@mistralai/mistralai';
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
@@ -27,9 +28,6 @@ import {
   type FallbackAgent
 } from './agents/index.js';
 
-// Mistral API endpoint
-const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
-
 // Mistral model types (common models, API accepts any valid model ID)
 export type MistralModel =
   | 'mistral-small-latest'
@@ -40,26 +38,6 @@ export type MistralModel =
   | 'codestral-latest'
   | 'devstral-small-latest'
   | string;  // Allow any model ID from API
-
-interface MistralResponse {
-  id?: string;
-  object?: string;
-  created?: number;
-  model?: string;
-  choices?: Array<{
-    index?: number;
-    message?: {
-      role?: string;
-      content?: string;
-    };
-    finish_reason?: string;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-}
 
 /**
  * Mistral message format (OpenAI-compatible)
@@ -73,6 +51,7 @@ export class MistralAgent {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
   private fallbackAgent: FallbackAgent | null = null;
+  private mistralClient: Mistral | null = null;
 
   constructor(dbManager: DatabaseManager, sessionManager: SessionManager) {
     this.dbManager = dbManager;
@@ -85,6 +64,33 @@ export class MistralAgent {
    */
   setFallbackAgent(agent: FallbackAgent): void {
     this.fallbackAgent = agent;
+  }
+
+  /**
+   * Get or create Mistral client with retry configuration
+   * Uses exponential backoff for 429 rate limit handling
+   */
+  private getMistralClient(): Mistral {
+    const { apiKey } = this.getMistralConfig();
+
+    if (!this.mistralClient || !apiKey) {
+      this.mistralClient = new Mistral({
+        apiKey,
+        // Built-in retry with exponential backoff for 429 rate limits
+        retryConfig: {
+          strategy: 'backoff',
+          backoff: {
+            initialInterval: 2000,   // Start with 2 seconds (Mistral free tier is slow)
+            maxInterval: 60000,      // Max 60 seconds between retries
+            exponent: 2,             // Double the wait time each retry
+            maxElapsedTime: 300000,  // Give up after 5 minutes total
+          },
+          retryConnectionErrors: true,
+        },
+      });
+    }
+
+    return this.mistralClient;
   }
 
   /**
@@ -110,7 +116,7 @@ export class MistralAgent {
 
       // Add to conversation history and query Mistral with full context
       session.conversationHistory.push({ role: 'user', content: initPrompt });
-      const initResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
+      const initResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
 
       if (initResponse.content) {
         // Add response to conversation history
@@ -183,7 +189,7 @@ export class MistralAgent {
 
           // Add to conversation history and query Mistral with full context
           session.conversationHistory.push({ role: 'user', content: obsPrompt });
-          const obsResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
+          const obsResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
 
           let tokensUsed = 0;
           if (obsResponse.content) {
@@ -227,7 +233,7 @@ export class MistralAgent {
 
           // Add to conversation history and query Mistral with full context
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-          const summaryResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
+          const summaryResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
 
           let tokensUsed = 0;
           if (summaryResponse.content) {
@@ -299,12 +305,12 @@ export class MistralAgent {
   }
 
   /**
-   * Query Mistral via REST API with full conversation history (multi-turn)
+   * Query Mistral via SDK with full conversation history (multi-turn)
    * Sends the entire conversation context for coherent responses
+   * SDK handles 429 rate limits automatically with exponential backoff
    */
   private async queryMistralMultiTurn(
     history: ConversationMessage[],
-    apiKey: string,
     model: MistralModel
   ): Promise<{ content: string; inputTokens?: number; outputTokens?: number }> {
     // Validate we have at least one message
@@ -320,35 +326,30 @@ export class MistralAgent {
       totalChars
     });
 
-    const response = await fetch(MISTRAL_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,  // Lower temperature for structured extraction
-        max_tokens: 4096,
-      }),
+    const client = this.getMistralClient();
+
+    // SDK has built-in retry for 429 errors configured via retryConfig
+    const response = await client.chat.complete({
+      model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature: 0.3,  // Lower temperature for structured extraction
+      maxTokens: 4096,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Mistral API error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json() as MistralResponse;
-
-    if (!data.choices?.[0]?.message?.content) {
+    const choice = response.choices?.[0];
+    if (!choice?.message?.content) {
       logger.error('SDK', 'Empty response from Mistral');
       return { content: '' };
     }
 
-    const content = data.choices[0].message.content;
-    const inputTokens = data.usage?.prompt_tokens;
-    const outputTokens = data.usage?.completion_tokens;
+    const content = typeof choice.message.content === 'string'
+      ? choice.message.content
+      : '';
+    const inputTokens = response.usage?.promptTokens;
+    const outputTokens = response.usage?.completionTokens;
 
     return { content, inputTokens, outputTokens };
   }
