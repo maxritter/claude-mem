@@ -6,10 +6,8 @@ import { SettingsDefaultsManager } from "./SettingsDefaultsManager.js";
 import { getWorkerRestartInstructions } from "../utils/error-messages.js";
 import { MARKETPLACE_ROOT } from "./paths.js";
 
-// Named constants for health checks
 const HEALTH_CHECK_TIMEOUT_MS = getTimeout(HOOK_TIMEOUTS.HEALTH_CHECK);
 
-// Cache to avoid repeated settings file reads
 let cachedPort: number | null = null;
 let cachedHost: string | null = null;
 let cachedBind: string | null = null;
@@ -78,7 +76,6 @@ export function clearPortCache(): void {
  * IPv6 addresses need to be wrapped in brackets: [::1]
  */
 function formatHostForUrl(host: string): string {
-  // Check if it's an IPv6 address (contains colon and not already bracketed)
   if (host.includes(':') && !host.startsWith('[')) {
     return `[${host}]`;
   }
@@ -111,7 +108,7 @@ async function isWorkerHealthy(): Promise<boolean> {
  * Get the current plugin version from package.json
  */
 function getPluginVersion(): string {
-  const packageJsonPath = path.join(MARKETPLACE_ROOT, 'package.json');
+  const packageJsonPath = path.join(MARKETPLACE_ROOT, 'plugin', 'package.json');
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
   return packageJson.version;
 }
@@ -139,7 +136,6 @@ async function checkWorkerVersion(): Promise<void> {
   const workerVersion = await getWorkerVersion();
 
   if (pluginVersion !== workerVersion) {
-    // Just log debug info - auto-restart handles the mismatch in worker-service.ts
     logger.debug('SYSTEM', 'Version check', {
       pluginVersion,
       workerVersion,
@@ -154,7 +150,7 @@ async function checkWorkerVersion(): Promise<void> {
  */
 export interface WorkerReadyResult {
   ready: boolean;
-  waited: number;  // milliseconds waited
+  waited: number;
 }
 
 /**
@@ -164,19 +160,17 @@ export interface WorkerReadyResult {
  * @returns Object with ready status and time waited
  */
 export async function tryEnsureWorkerRunning(maxWaitMs: number = 3000): Promise<WorkerReadyResult> {
-  const pollInterval = 100;  // Faster polling for quicker response
+  const pollInterval = 100;
   const maxRetries = Math.ceil(maxWaitMs / pollInterval);
   const startTime = Date.now();
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       if (await isWorkerHealthy()) {
-        // Fire and forget version check - don't block on it
         checkWorkerVersion().catch(() => {});
         return { ready: true, waited: Date.now() - startTime };
       }
     } catch (e) {
-      // Don't log every retry for non-blocking version
       if (i === 0) {
         logger.debug('SYSTEM', 'Worker not ready, polling...', {
           maxWaitMs,
@@ -196,13 +190,13 @@ export async function tryEnsureWorkerRunning(maxWaitMs: number = 3000): Promise<
  * @deprecated Prefer tryEnsureWorkerRunning() for non-blocking checks
  */
 export async function ensureWorkerRunning(): Promise<void> {
-  const maxRetries = 75;  // 15 seconds total
+  const maxRetries = 75;
   const pollInterval = 200;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       if (await isWorkerHealthy()) {
-        await checkWorkerVersion();  // logs warning on mismatch, doesn't restart
+        await checkWorkerVersion();
         return;
       }
     } catch (e) {

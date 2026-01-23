@@ -21,7 +21,6 @@ import { MARKETPLACE_ROOT } from '../../shared/paths.js';
  */
 function formatWorkerUrl(port: number): string {
   const host = getWorkerHost();
-  // Check if it's an IPv6 address (contains colon and not already bracketed)
   const formattedHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
   return `http://${formattedHost}:${port}`;
 }
@@ -35,7 +34,6 @@ export async function isPortInUse(port: number): Promise<boolean> {
     const response = await fetch(`${formatWorkerUrl(port)}/api/health`);
     return response.ok;
   } catch (error) {
-    // [ANTI-PATTERN IGNORED]: Health check polls every 500ms, logging would flood
     return false;
   }
 }
@@ -54,7 +52,6 @@ export async function waitForHealth(port: number, timeoutMs: number = 30000): Pr
       const response = await fetch(`${formatWorkerUrl(port)}/api/readiness`);
       if (response.ok) return true;
     } catch (error) {
-      // [ANTI-PATTERN IGNORED]: Retry loop - expected failures during startup, will retry
       logger.debug('SYSTEM', 'Service not ready yet, will retry', { port }, error as Error);
     }
     await new Promise(r => setTimeout(r, 500));
@@ -92,12 +89,10 @@ export async function httpShutdown(port: number): Promise<boolean> {
     }
     return true;
   } catch (error) {
-    // Connection refused is expected if worker already stopped
     if (error instanceof Error && error.message?.includes('ECONNREFUSED')) {
       logger.debug('SYSTEM', 'Worker already stopped', { port }, error);
       return false;
     }
-    // Unexpected error - log full details
     logger.error('SYSTEM', 'Shutdown request failed unexpectedly', { port }, error as Error);
     return false;
   }
@@ -108,7 +103,7 @@ export async function httpShutdown(port: number): Promise<boolean> {
  * This is the "expected" version that should be running
  */
 export function getInstalledPluginVersion(): string {
-  const packageJsonPath = path.join(MARKETPLACE_ROOT, 'package.json');
+  const packageJsonPath = path.join(MARKETPLACE_ROOT, 'plugin', 'package.json');
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
   return packageJson.version;
 }
@@ -124,7 +119,6 @@ export async function getRunningWorkerVersion(port: number): Promise<string | nu
     const data = await response.json() as { version: string };
     return data.version;
   } catch {
-    // Expected: worker not running or version endpoint unavailable
     logger.debug('SYSTEM', 'Could not fetch worker version', { port });
     return null;
   }
@@ -145,7 +139,6 @@ export async function checkVersionMatch(port: number): Promise<VersionCheckResul
   const pluginVersion = getInstalledPluginVersion();
   const workerVersion = await getRunningWorkerVersion(port);
 
-  // If we can't get worker version, assume it matches (graceful degradation)
   if (!workerVersion) {
     return { matches: true, pluginVersion, workerVersion };
   }
