@@ -1,7 +1,7 @@
 <h1 align="center">
   Claude-Mem
   <br>
-  <sub>Customable Fork</sub>
+  <sub>Customable Fork for Claude CodePro</sub>
 </h1>
 
 <h4 align="center">Persistent memory system for <a href="https://claude.ai/download" target="_blank">Claude Code</a>.</h4>
