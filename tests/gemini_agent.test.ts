@@ -105,7 +105,8 @@ describe('GeminiAgent', () => {
 
     mockDbManager = {
       getSessionStore: () => mockSessionStore,
-      getChromaSync: () => mockChromaSync
+      getChromaSync: () => mockChromaSync,
+      getVectorSync: () => mockChromaSync
     } as unknown as DatabaseManager;
 
     const mockPendingMessageStore = {

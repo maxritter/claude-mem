@@ -77,6 +77,10 @@ describe('ResponseProcessor', () => {
         syncObservation: mockChromaSyncObservation,
         syncSummary: mockChromaSyncSummary,
       }),
+      getVectorSync: () => ({
+        syncObservation: mockChromaSyncObservation,
+        syncSummary: mockChromaSyncSummary,
+      }),
     } as unknown as DatabaseManager;
 
     mockSessionManager = {

@@ -9,11 +9,13 @@
  * - HTTP-based shutdown requests
  */
 
-import path from 'path';
-import { readFileSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { getWorkerHost } from '../../shared/worker-utils.js';
-import { MARKETPLACE_ROOT } from '../../shared/paths.js';
+
+declare const __DEFAULT_PACKAGE_VERSION__: string;
+const BUILT_IN_VERSION = typeof __DEFAULT_PACKAGE_VERSION__ !== 'undefined'
+  ? __DEFAULT_PACKAGE_VERSION__
+  : '0.0.0-dev';
 
 /**
  * Format worker URL with correct host (supports IPv6)
@@ -99,13 +101,11 @@ export async function httpShutdown(port: number): Promise<boolean> {
 }
 
 /**
- * Get the plugin version from the installed marketplace package.json
+ * Get the plugin version from the build-time constant
  * This is the "expected" version that should be running
  */
 export function getInstalledPluginVersion(): string {
-  const packageJsonPath = path.join(MARKETPLACE_ROOT, 'plugin', 'package.json');
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-  return packageJson.version;
+  return BUILT_IN_VERSION;
 }
 
 /**
