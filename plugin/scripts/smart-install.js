@@ -8,7 +8,8 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
-import { join, dirname, fileURLToPath } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 
 // Determine plugin root: CLAUDE_PLUGIN_ROOT (set by Claude Code) or derive from script location

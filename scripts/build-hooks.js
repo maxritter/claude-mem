@@ -65,8 +65,7 @@ async function buildHooks() {
       description: 'Runtime dependencies for claude-mem bundled hooks',
       type: 'module',
       dependencies: {
-        '@xenova/transformers': packageJson.dependencies['@xenova/transformers'],
-        '@qdrant/js-client-rest': packageJson.dependencies['@qdrant/js-client-rest']
+        '@xenova/transformers': packageJson.dependencies['@xenova/transformers']
       },
       trustedDependencies: [
         '@openrouter/sdk',
@@ -110,7 +109,6 @@ async function buildHooks() {
       external: [
         'bun:sqlite',
         '@xenova/transformers',  // Has native onnxruntime bindings
-        '@qdrant/js-client-rest', // External REST client
         'onnxruntime-node',       // Native .node bindings
         'sharp'                   // Native image processing
       ],
