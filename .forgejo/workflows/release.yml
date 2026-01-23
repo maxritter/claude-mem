@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
 
+# Don't cancel running releases - let them finish
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Create Release
@@ -188,6 +193,17 @@ jobs:
 
           echo "Updated plugin.json to version $VERSION"
 
+      - name: Update version in plugin/package.json
+        if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update plugin/package.json
+          jq --arg v "$VERSION" '.version = $v' plugin/package.json > plugin-package.json.tmp
+          mv plugin-package.json.tmp plugin/package.json
+
+          echo "Updated plugin/package.json to version $VERSION"
+
       - name: Update CHANGELOG.md
         if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
         run: |
@@ -238,7 +254,7 @@ jobs:
           git config user.name "Release Bot"
           git config user.email "release@customable.de"
 
-          git add package.json plugin/.claude-plugin/plugin.json CHANGELOG.md README.md
+          git add package.json plugin/.claude-plugin/plugin.json plugin/package.json CHANGELOG.md README.md
           git commit -m "chore(release): bump version to ${VERSION}" || echo "No changes to commit"
           git push origin main
 
@@ -263,7 +279,7 @@ jobs:
             echo "## Installation"
             echo ""
             echo "$BACKTICKS"
-            echo "> /plugin marketplace add https://github.com/maxritter/claude-mem.git"
+            echo "> /plugin marketplace add https://git.customable.host/customable/claude-plugins.git"
             echo "> /plugin install claude-mem"
             echo "$BACKTICKS"
             echo ""
@@ -278,6 +294,11 @@ jobs:
           BODY=$(cat /tmp/release_body.md)
 
           # Create release via API
+          REPO="${{ github.repository }}"
+          if [ -z "$REPO" ]; then
+            REPO="customable/claude-mem"
+          fi
+
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: token ${{ secrets.RELEASE_TOKEN }}" \
             -H "Content-Type: application/json" \
@@ -286,10 +307,131 @@ jobs:
               --arg name "Release $TAG" \
               --arg body "$BODY" \
               '{tag_name: $tag, name: $name, body: $body}')" \
-            "https://git.customable.host/api/v1/repos/${{ github.repository }}/releases")
+            "https://git.customable.host/api/v1/repos/${REPO}/releases")
 
           echo "Release $TAG created!"
           echo "$RESPONSE" | jq .
 
-      # Marketplace version is updated in this repo's .claude-plugin/marketplace.json
-      # No separate marketplace repo needed - this repo IS the marketplace
+      - name: Sync release to GitHub
+        if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          CHANGELOG=$(cat /tmp/changelog.md)
+          BACKTICKS='```'
+
+          # Build GitHub release body
+          {
+            echo "## Installation"
+            echo ""
+            echo "### From Customable Marketplace (recommended)"
+            echo "$BACKTICKS"
+            echo "> /plugin marketplace add https://git.customable.host/customable/claude-plugins.git"
+            echo "> /plugin install claude-mem"
+            echo "$BACKTICKS"
+            echo ""
+            echo "### From GitHub"
+            echo "$BACKTICKS"
+            echo "> /plugin install https://github.com/customable/claude-mem.git"
+            echo "$BACKTICKS"
+            echo ""
+            echo "## Changes"
+            echo ""
+            echo "$CHANGELOG"
+            echo ""
+            echo "---"
+            echo "Built from commit ${{ steps.version.outputs.sha }}"
+          } > /tmp/github_release_body.md
+
+          BODY=$(cat /tmp/github_release_body.md)
+
+          # Create release on GitHub via API (code is synced via mirror)
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$(jq -n \
+              --arg tag "$TAG" \
+              --arg name "Release $TAG" \
+              --arg body "$BODY" \
+              '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')" \
+            "https://api.github.com/repos/customable/claude-mem/releases")
+
+          if echo "$RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+            echo "GitHub release $TAG created!"
+            echo "$RESPONSE" | jq '{id, html_url, tag_name}'
+          else
+            echo "GitHub release failed or already exists:"
+            echo "$RESPONSE" | jq .
+          fi
+
+      - name: Update marketplace version
+        if: steps.version.outputs.skip != 'true' && steps.check.outputs.exists == 'false'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Clone marketplace repo with auth
+          git clone "https://release-bot:${RELEASE_TOKEN}@git.customable.host/customable/claude-plugins.git" /tmp/claude-plugins
+          cd /tmp/claude-plugins
+
+          # Update version in marketplace.json
+          jq --arg v "$VERSION" '.plugins[0].version = $v' .claude-plugin/marketplace.json > marketplace.json.tmp
+          mv marketplace.json.tmp .claude-plugin/marketplace.json
+
+          # Commit and push
+          git config user.name "Release Bot"
+          git config user.email "release@customable.de"
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: update claude-mem to v${VERSION}"
+          git push origin main
+
+          echo "Marketplace updated to v${VERSION}"
+
+  # Build and push Docker image
+  docker:
+    name: Build Docker Image
+    runs-on: [docker, light]
+    needs: release
+    if: needs.release.result == 'success'
+    continue-on-error: true  # Don't fail release if Docker build fails
+    container:
+      image: catthehacker/ubuntu:act-latest
+      options: --volume /var/run/docker.sock:/var/run/docker.sock
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main  # Checkout latest main with version bump
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Forgejo Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: git.customable.host
+          username: ${{ github.actor }}
+          password: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Get version from package.json
+        id: version
+        run: |
+          VERSION=$(jq -r '.version' package.json)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            git.customable.host/customable/claude-mem:latest
+            git.customable.host/customable/claude-mem:${{ steps.version.outputs.version }}
+          # Note: GHA cache not available on Forgejo, using registry cache instead
+          cache-from: type=registry,ref=git.customable.host/customable/claude-mem:buildcache
+          cache-to: type=registry,ref=git.customable.host/customable/claude-mem:buildcache,mode=max

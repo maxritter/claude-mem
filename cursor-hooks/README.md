@@ -15,7 +15,7 @@ Give your Cursor AI persistent memory across sessions. Your agent remembers what
 
 ```bash
 # Clone and build
-git clone https://github.com/thedotmack/claude-mem.git
+git clone https://github.com/customable/claude-mem.git
 cd claude-mem && bun install && bun run build
 
 # Interactive setup (configures provider + installs hooks)
@@ -241,6 +241,5 @@ Install on Ubuntu: `apt-get install jq curl`
 
 ## See Also
 
-- [Claude-Mem Documentation](https://docs.claude-mem.ai)
+- [Claude-Mem Documentation](https://github.com/customable/claude-mem#readme)
 - [Cursor Hooks Reference](../docs/context/cursor-hooks-reference.md)
-- [Claude-Mem Architecture](https://docs.claude-mem.ai/architecture/overview)

@@ -1,4 +1,4 @@
-import { Database } from './sqlite-compat.js';
+import { Database } from 'bun:sqlite';
 import type { PendingMessage } from '../worker-types.js';
 import { logger } from '../../utils/logger.js';
 
@@ -366,6 +366,25 @@ export class PendingMessageStore {
     `);
     const result = stmt.run();
     return result.changes;
+  }
+
+  /**
+   * Retry a failed message by resetting it to pending status
+   * @param messageId The ID of the message to retry
+   * @returns True if the message was found and reset, false otherwise
+   */
+  retryMessage(messageId: number): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE pending_messages
+      SET status = 'pending',
+          retry_count = 0,
+          started_processing_at_epoch = NULL,
+          completed_at_epoch = NULL,
+          failed_at_epoch = NULL
+      WHERE id = ? AND status = 'failed'
+    `);
+    const result = stmt.run(messageId);
+    return result.changes > 0;
   }
 
   /**

@@ -15,6 +15,7 @@ import { SDKAgent } from '../../SDKAgent.js';
 import { GeminiAgent, isGeminiSelected, isGeminiAvailable } from '../../GeminiAgent.js';
 import { OpenRouterAgent, isOpenRouterSelected, isOpenRouterAvailable } from '../../OpenRouterAgent.js';
 import { MistralAgent, isMistralSelected, isMistralAvailable } from '../../MistralAgent.js';
+import { OpenAIAgent, isOpenAISelected, isOpenAIAvailable } from '../../OpenAIAgent.js';
 import type { WorkerService } from '../../../worker-service.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { SessionEventBroadcaster } from '../../events/SessionEventBroadcaster.js';
@@ -33,6 +34,7 @@ export class SessionRoutes extends BaseRouteHandler {
     private geminiAgent: GeminiAgent,
     private openRouterAgent: OpenRouterAgent,
     private mistralAgent: MistralAgent,
+    private openaiAgent: OpenAIAgent,
     private eventBroadcaster: SessionEventBroadcaster,
     private workerService: WorkerService
   ) {
@@ -50,7 +52,15 @@ export class SessionRoutes extends BaseRouteHandler {
    * Note: Session linking via contentSessionId allows provider switching mid-session.
    * The conversationHistory on ActiveSession maintains context across providers.
    */
-  private getActiveAgent(): SDKAgent | GeminiAgent | OpenRouterAgent | MistralAgent {
+  private getActiveAgent(): SDKAgent | GeminiAgent | OpenRouterAgent | MistralAgent | OpenAIAgent {
+    if (isOpenAISelected()) {
+      if (isOpenAIAvailable()) {
+        logger.debug('SESSION', 'Using OpenAI agent');
+        return this.openaiAgent;
+      } else {
+        throw new Error('OpenAI provider selected but no API key configured. Set CLAUDE_MEM_OPENAI_API_KEY in settings or OPENAI_API_KEY environment variable.');
+      }
+    }
     if (isMistralSelected()) {
       if (isMistralAvailable()) {
         logger.debug('SESSION', 'Using Mistral agent');
@@ -81,7 +91,10 @@ export class SessionRoutes extends BaseRouteHandler {
   /**
    * Get the currently selected provider name
    */
-  private getSelectedProvider(): 'claude' | 'gemini' | 'openrouter' | 'mistral' {
+  private getSelectedProvider(): 'claude' | 'gemini' | 'openrouter' | 'mistral' | 'openai' {
+    if (isOpenAISelected() && isOpenAIAvailable()) {
+      return 'openai';
+    }
     if (isMistralSelected() && isMistralAvailable()) {
       return 'mistral';
     }
@@ -130,7 +143,7 @@ export class SessionRoutes extends BaseRouteHandler {
    */
   private startGeneratorWithProvider(
     session: ReturnType<typeof this.sessionManager.getSession>,
-    provider: 'claude' | 'gemini' | 'openrouter' | 'mistral',
+    provider: 'claude' | 'gemini' | 'openrouter' | 'mistral' | 'openai',
     source: string
   ): void {
     if (!session) return;
@@ -147,8 +160,8 @@ export class SessionRoutes extends BaseRouteHandler {
       session.abortController = new AbortController();
     }
 
-    const agent = provider === 'mistral' ? this.mistralAgent : (provider === 'openrouter' ? this.openRouterAgent : (provider === 'gemini' ? this.geminiAgent : this.sdkAgent));
-    const agentName = provider === 'mistral' ? 'Mistral' : (provider === 'openrouter' ? 'OpenRouter' : (provider === 'gemini' ? 'Gemini' : 'Claude SDK'));
+    const agent = provider === 'openai' ? this.openaiAgent : (provider === 'mistral' ? this.mistralAgent : (provider === 'openrouter' ? this.openRouterAgent : (provider === 'gemini' ? this.geminiAgent : this.sdkAgent)));
+    const agentName = provider === 'openai' ? 'OpenAI' : (provider === 'mistral' ? 'Mistral' : (provider === 'openrouter' ? 'OpenRouter' : (provider === 'gemini' ? 'Gemini' : 'Claude SDK')));
 
     logger.info('SESSION', `Generator auto-starting (${source}) using ${agentName}`, {
       sessionId: session.sessionDbId,

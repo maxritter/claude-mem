@@ -16,6 +16,8 @@ import path from 'path';
 import { logger } from '../../utils/logger.js';
 import { createMiddleware, summarizeRequestBody, requireLocalhost } from './Middleware.js';
 import { errorHandler, notFoundHandler } from './ErrorHandler.js';
+import { authMiddleware, rateLimitMiddleware, isRemoteAuthConfigured } from './middleware/index.js';
+import { getWorkerBind } from '../../shared/worker-utils.js';
 
 // Build-time injected version constant (set by esbuild define)
 declare const __DEFAULT_PACKAGE_VERSION__: string;
@@ -136,6 +138,21 @@ export class Server {
   private setupMiddleware(): void {
     const middlewares = createMiddleware(summarizeRequestBody);
     middlewares.forEach(mw => this.app.use(mw));
+
+    // Add rate limiting for remote requests (localhost bypassed)
+    this.app.use(rateLimitMiddleware(1000, 60000));
+
+    // Add authentication middleware only when:
+    // 1. Binding to non-localhost (network access)
+    // 2. AND a remote token is configured
+    const bind = getWorkerBind();
+    const authConfigured = isRemoteAuthConfigured();
+    if (bind !== '127.0.0.1' && bind !== 'localhost' && authConfigured) {
+      logger.info('SYSTEM', 'Enabling authentication middleware for network access', { bind });
+      this.app.use(authMiddleware);
+    } else if (bind !== '127.0.0.1' && bind !== 'localhost' && !authConfigured) {
+      logger.warn('SYSTEM', 'Network access enabled WITHOUT authentication - set CLAUDE_MEM_REMOTE_TOKEN for security', { bind });
+    }
   }
 
   /**
@@ -194,6 +211,24 @@ export class Server {
     // Version endpoint - returns the worker's built-in version
     this.app.get('/api/version', (_req: Request, res: Response) => {
       res.status(200).json({ version: BUILT_IN_VERSION });
+    });
+
+    // Process stats endpoint - returns counts of claude-mem related processes
+    // Useful for debugging zombie process accumulation
+    this.app.get('/api/process-stats', async (_req: Request, res: Response) => {
+      try {
+        const { getProcessStats } = await import('../infrastructure/ProcessManager.js');
+        const stats = await getProcessStats();
+        res.status(200).json({
+          ...stats,
+          uptime: Math.round((Date.now() - this.startTime) / 1000),
+          platform: process.platform,
+          pid: process.pid,
+        });
+      } catch (error) {
+        logger.error('SYSTEM', 'Failed to get process stats', {}, error as Error);
+        res.status(500).json({ error: 'Failed to get process stats' });
+      }
     });
 
     // Instructions endpoint - loads SKILL.md sections on-demand

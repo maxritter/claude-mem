@@ -13,6 +13,7 @@ import path from 'path';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { homedir } from 'os';
 import { logger } from '../../utils/logger.js';
 import { getWorkerPort, getWorkerHost } from '../../shared/worker-utils.js';
 import { DATA_DIR, MARKETPLACE_ROOT, PLUGINS_DIR } from '../../shared/paths.js';
@@ -240,7 +241,7 @@ export function configureCursorMcp(target: CursorInstallTarget): number {
 
   if (!mcpServerPath) {
     console.error('Could not find MCP server script');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/customable/plugin/scripts/mcp-server.cjs');
     return 1;
   }
 
@@ -309,7 +310,7 @@ export async function installCursorHooks(_sourceDir: string, target: CursorInsta
   const workerServicePath = findWorkerServicePath();
   if (!workerServicePath) {
     console.error('Could not find worker-service.cjs');
-    console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs');
+    console.error('   Expected at: ~/.claude/plugins/marketplaces/customable/plugin/scripts/worker-service.cjs');
     return 1;
   }
 
@@ -597,7 +598,7 @@ export function checkCursorHooksStatus(): number {
 export async function detectClaudeCode(): Promise<boolean> {
   try {
     // Check for Claude Code CLI
-    const { stdout } = await execAsync('which claude || where claude', { timeout: 5000 });
+    const { stdout } = await execAsync('which claude || where claude', { timeout: 5000, windowsHide: true });
     if (stdout.trim()) {
       return true;
     }
@@ -625,7 +626,7 @@ export async function handleCursorCommand(subcommand: string, args: string[]): P
 
       if (!cursorHooksDir) {
         console.error('Could not find cursor-hooks directory');
-        console.error('   Expected at: ~/.claude/plugins/marketplaces/thedotmack/cursor-hooks/');
+        console.error('   Expected at: ~/.claude/plugins/marketplaces/customable/cursor-hooks/');
         return 1;
       }
 
@@ -672,7 +673,7 @@ Examples:
   claude-mem cursor uninstall            # Remove from current project
   claude-mem cursor status               # Check if hooks are installed
 
-For more info: https://docs.claude-mem.ai/cursor
+For more info: https://github.com/customable/claude-mem#readme
       `);
       return 0;
     }

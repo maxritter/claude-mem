@@ -1,16 +1,16 @@
 {
-  "name": "thedotmack",
+  "name": "customable",
   "owner": {
-    "name": "Alex Newman"
+    "name": "Customable"
   },
   "metadata": {
-    "description": "Plugins by Alex Newman (thedotmack)",
-    "homepage": "https://github.com/thedotmack/claude-mem"
+    "description": "Plugins by Customable (fork of claude-mem)",
+    "homepage": "https://github.com/customable/claude-mem"
   },
   "plugins": [
     {
       "name": "claude-mem",
-      "version": "1.0.9",
+      "version": "1.2.2",
       "source": "./plugin",
       "description": "Persistent memory system for Claude Code - context compression across sessions"
     }

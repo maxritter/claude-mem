@@ -1,21 +1,22 @@
 /**
  * MistralAgent: Mistral-based observation extraction
  *
- * Alternative to SDKAgent that uses Mistral's native API directly
- * for extracting observations from tool usage.
+ * Uses the official Mistral SDK with built-in retry/rate-limit handling.
  *
  * Responsibility:
- * - Call Mistral REST API for observation extraction
+ * - Call Mistral API via SDK for observation extraction
  * - Parse XML responses (same format as Claude)
  * - Sync to database and Chroma
+ * - Automatic 429 rate-limit handling via SDK retry config
  */
 
 import path from 'path';
 import { homedir } from 'os';
+import { Mistral } from '@mistralai/mistralai';
 import { DatabaseManager } from './DatabaseManager.js';
 import { SessionManager } from './SessionManager.js';
 import { logger } from '../../utils/logger.js';
-import { buildInitPrompt, buildObservationPrompt, buildSummaryPrompt, buildContinuationPrompt } from '../../sdk/prompts.js';
+import { buildInitPrompt, buildObservationPrompt, buildBatchObservationPrompt, buildSummaryPrompt, buildContinuationPrompt, type Observation } from '../../sdk/prompts.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import type { ActiveSession, ConversationMessage } from '../worker-types.js';
 import { ModeManager } from '../domain/ModeManager.js';
@@ -27,9 +28,6 @@ import {
   type FallbackAgent
 } from './agents/index.js';
 
-// Mistral API endpoint
-const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
-
 // Mistral model types (common models, API accepts any valid model ID)
 export type MistralModel =
   | 'mistral-small-latest'
@@ -40,26 +38,6 @@ export type MistralModel =
   | 'codestral-latest'
   | 'devstral-small-latest'
   | string;  // Allow any model ID from API
-
-interface MistralResponse {
-  id?: string;
-  object?: string;
-  created?: number;
-  model?: string;
-  choices?: Array<{
-    index?: number;
-    message?: {
-      role?: string;
-      content?: string;
-    };
-    finish_reason?: string;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-}
 
 /**
  * Mistral message format (OpenAI-compatible)
@@ -73,6 +51,7 @@ export class MistralAgent {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
   private fallbackAgent: FallbackAgent | null = null;
+  private mistralClient: Mistral | null = null;
 
   constructor(dbManager: DatabaseManager, sessionManager: SessionManager) {
     this.dbManager = dbManager;
@@ -85,6 +64,35 @@ export class MistralAgent {
    */
   setFallbackAgent(agent: FallbackAgent): void {
     this.fallbackAgent = agent;
+  }
+
+  /**
+   * Get or create Mistral client with retry configuration
+   * Uses exponential backoff for 429 rate limit handling
+   */
+  private getMistralClient(): Mistral {
+    const { apiKey } = this.getMistralConfig();
+
+    if (!this.mistralClient || !apiKey) {
+      this.mistralClient = new Mistral({
+        apiKey,
+        // Request timeout - prevent hanging forever
+        timeoutMs: 120000, // 2 minutes per request
+        // Built-in retry with exponential backoff for 429 rate limits
+        retryConfig: {
+          strategy: 'backoff',
+          backoff: {
+            initialInterval: 2000,   // Start with 2 seconds (Mistral free tier is slow)
+            maxInterval: 60000,      // Max 60 seconds between retries
+            exponent: 2,             // Double the wait time each retry
+            maxElapsedTime: 300000,  // Give up after 5 minutes total
+          },
+          retryConnectionErrors: true,
+        },
+      });
+    }
+
+    return this.mistralClient;
   }
 
   /**
@@ -110,7 +118,7 @@ export class MistralAgent {
 
       // Add to conversation history and query Mistral with full context
       session.conversationHistory.push({ role: 'user', content: initPrompt });
-      const initResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
+      const initResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
 
       if (initResponse.content) {
         // Add response to conversation history
@@ -146,71 +154,135 @@ export class MistralAgent {
         });
       }
 
-      // Process pending messages
+      // Process pending messages with batch processing support
       // Track cwd from messages for CLAUDE.md generation
       let lastCwd: string | undefined;
+
+      // Get batch size from settings (default: 5)
+      const settingsPath = path.join(homedir(), '.claude-mem', 'settings.json');
+      const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
+      const batchSize = parseInt(settings.CLAUDE_MEM_BATCH_SIZE, 10) || 5;
+
+      // Buffer for batch processing
+      interface BatchItem {
+        observation: Observation;
+        originalTimestamp: number | null;
+        promptNumber: number | undefined;
+        cwd: string | undefined;
+      }
+      const observationBatch: BatchItem[] = [];
+
+      // Helper function to process a batch of observations
+      const processBatch = async (batch: BatchItem[]): Promise<void> => {
+        if (batch.length === 0) return;
+
+        // CRITICAL: Check memorySessionId BEFORE making expensive LLM call
+        if (!session.memorySessionId) {
+          throw new Error('Cannot process observations: memorySessionId not yet captured. This session may need to be reinitialized.');
+        }
+
+        // Use earliest timestamp from batch for accurate ordering
+        const earliestTimestamp = batch.reduce((min, item) =>
+          item.originalTimestamp && (!min || item.originalTimestamp < min) ? item.originalTimestamp : min,
+          batch[0].originalTimestamp
+        );
+
+        // Update last prompt number to highest in batch
+        const maxPromptNumber = batch.reduce((max, item) =>
+          item.promptNumber !== undefined && item.promptNumber > (max ?? 0) ? item.promptNumber : max,
+          session.lastPromptNumber
+        );
+        if (maxPromptNumber !== undefined) {
+          session.lastPromptNumber = maxPromptNumber;
+        }
+
+        // Build batch or single observation prompt
+        const observations = batch.map(item => item.observation);
+        const obsPrompt = batch.length === 1
+          ? buildObservationPrompt(observations[0])
+          : buildBatchObservationPrompt(observations);
+
+        logger.info('SDK', `Processing batch of ${batch.length} observations`, {
+          sessionId: session.sessionDbId,
+          batchSize: batch.length,
+          tools: observations.map(o => o.tool_name).join(', ')
+        });
+
+        // Add to conversation history and query Mistral
+        session.conversationHistory.push({ role: 'user', content: obsPrompt });
+
+        // Limit history to prevent exponential slowdown (keep first 2 + last 10 messages)
+        if (session.conversationHistory.length > 12) {
+          const first = session.conversationHistory.slice(0, 2);  // Init prompt + response
+          const last = session.conversationHistory.slice(-10);    // Last 10 messages
+          session.conversationHistory.length = 0;
+          session.conversationHistory.push(...first, ...last);
+        }
+
+        const obsResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
+
+        let tokensUsed = 0;
+        if (obsResponse.content) {
+          session.conversationHistory.push({ role: 'assistant', content: obsResponse.content });
+
+          const inputTokens = obsResponse.inputTokens || 0;
+          const outputTokens = obsResponse.outputTokens || 0;
+          tokensUsed = inputTokens + outputTokens;
+          session.cumulativeInputTokens += inputTokens;
+          session.cumulativeOutputTokens += outputTokens;
+        }
+
+        // Process response (ResponseProcessor handles multiple observations)
+        await processAgentResponse(
+          obsResponse.content || '',
+          session,
+          this.dbManager,
+          this.sessionManager,
+          worker,
+          tokensUsed,
+          earliestTimestamp,
+          'Mistral',
+          lastCwd
+        );
+      };
 
       for await (const message of this.sessionManager.getMessageIterator(session.sessionDbId)) {
         // Capture cwd from each message for worktree support
         if (message.cwd) {
           lastCwd = message.cwd;
         }
-        // Capture earliest timestamp BEFORE processing (will be cleared after)
-        // This ensures backlog messages get their original timestamps, not current time
+        // Capture earliest timestamp BEFORE processing
         const originalTimestamp = session.earliestPendingTimestamp;
 
         if (message.type === 'observation') {
-          // Update last prompt number
-          if (message.prompt_number !== undefined) {
-            session.lastPromptNumber = message.prompt_number;
-          }
-
-          // CRITICAL: Check memorySessionId BEFORE making expensive LLM call
-          // This prevents wasting tokens when we won't be able to store the result anyway
-          if (!session.memorySessionId) {
-            throw new Error('Cannot process observations: memorySessionId not yet captured. This session may need to be reinitialized.');
-          }
-
-          // Build observation prompt
-          const obsPrompt = buildObservationPrompt({
-            id: 0,
-            tool_name: message.tool_name!,
-            tool_input: JSON.stringify(message.tool_input),
-            tool_output: JSON.stringify(message.tool_response),
-            created_at_epoch: originalTimestamp ?? Date.now(),
+          // Add to batch
+          observationBatch.push({
+            observation: {
+              id: 0,
+              tool_name: message.tool_name!,
+              tool_input: JSON.stringify(message.tool_input),
+              tool_output: JSON.stringify(message.tool_response),
+              created_at_epoch: originalTimestamp ?? Date.now(),
+              cwd: message.cwd
+            },
+            originalTimestamp,
+            promptNumber: message.prompt_number,
             cwd: message.cwd
           });
 
-          // Add to conversation history and query Mistral with full context
-          session.conversationHistory.push({ role: 'user', content: obsPrompt });
-          const obsResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
-
-          let tokensUsed = 0;
-          if (obsResponse.content) {
-            // Add response to conversation history
-            session.conversationHistory.push({ role: 'assistant', content: obsResponse.content });
-
-            const inputTokens = obsResponse.inputTokens || 0;
-            const outputTokens = obsResponse.outputTokens || 0;
-            tokensUsed = inputTokens + outputTokens;
-            session.cumulativeInputTokens += inputTokens;
-            session.cumulativeOutputTokens += outputTokens;
+          // Process batch when full
+          if (observationBatch.length >= batchSize) {
+            await processBatch(observationBatch);
+            observationBatch.length = 0; // Clear batch
           }
 
-          // Process response using shared ResponseProcessor
-          await processAgentResponse(
-            obsResponse.content || '',
-            session,
-            this.dbManager,
-            this.sessionManager,
-            worker,
-            tokensUsed,
-            originalTimestamp,
-            'Mistral',
-            lastCwd
-          );
-
         } else if (message.type === 'summarize') {
+          // Process any pending observations before summary
+          if (observationBatch.length > 0) {
+            await processBatch(observationBatch);
+            observationBatch.length = 0;
+          }
+
           // CRITICAL: Check memorySessionId BEFORE making expensive LLM call
           if (!session.memorySessionId) {
             throw new Error('Cannot process summary: memorySessionId not yet captured. This session may need to be reinitialized.');
@@ -227,11 +299,10 @@ export class MistralAgent {
 
           // Add to conversation history and query Mistral with full context
           session.conversationHistory.push({ role: 'user', content: summaryPrompt });
-          const summaryResponse = await this.queryMistralMultiTurn(session.conversationHistory, apiKey, model);
+          const summaryResponse = await this.queryMistralMultiTurn(session.conversationHistory, model);
 
           let tokensUsed = 0;
           if (summaryResponse.content) {
-            // Add response to conversation history
             session.conversationHistory.push({ role: 'assistant', content: summaryResponse.content });
 
             const inputTokens = summaryResponse.inputTokens || 0;
@@ -254,6 +325,11 @@ export class MistralAgent {
             lastCwd
           );
         }
+      }
+
+      // Process any remaining observations in batch
+      if (observationBatch.length > 0) {
+        await processBatch(observationBatch);
       }
 
       // Mark session complete
@@ -299,12 +375,12 @@ export class MistralAgent {
   }
 
   /**
-   * Query Mistral via REST API with full conversation history (multi-turn)
+   * Query Mistral via SDK with full conversation history (multi-turn)
    * Sends the entire conversation context for coherent responses
+   * SDK handles 429 rate limits automatically with exponential backoff
    */
   private async queryMistralMultiTurn(
     history: ConversationMessage[],
-    apiKey: string,
     model: MistralModel
   ): Promise<{ content: string; inputTokens?: number; outputTokens?: number }> {
     // Validate we have at least one message
@@ -320,35 +396,30 @@ export class MistralAgent {
       totalChars
     });
 
-    const response = await fetch(MISTRAL_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,  // Lower temperature for structured extraction
-        max_tokens: 4096,
-      }),
+    const client = this.getMistralClient();
+
+    // SDK has built-in retry for 429 errors configured via retryConfig
+    const response = await client.chat.complete({
+      model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature: 0.3,  // Lower temperature for structured extraction
+      maxTokens: 4096,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Mistral API error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json() as MistralResponse;
-
-    if (!data.choices?.[0]?.message?.content) {
+    const choice = response.choices?.[0];
+    if (!choice?.message?.content) {
       logger.error('SDK', 'Empty response from Mistral');
       return { content: '' };
     }
 
-    const content = data.choices[0].message.content;
-    const inputTokens = data.usage?.prompt_tokens;
-    const outputTokens = data.usage?.completion_tokens;
+    const content = typeof choice.message.content === 'string'
+      ? choice.message.content
+      : '';
+    const inputTokens = response.usage?.promptTokens;
+    const outputTokens = response.usage?.completionTokens;
 
     return { content, inputTokens, outputTokens };
   }

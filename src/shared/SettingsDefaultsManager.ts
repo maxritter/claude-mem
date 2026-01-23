@@ -20,7 +20,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORKER_BIND: string;  // Server bind address (0.0.0.0 for network access)
   CLAUDE_MEM_SKIP_TOOLS: string;
   // AI Provider Configuration
-  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openrouter' | 'mistral'
+  CLAUDE_MEM_PROVIDER: string;  // 'claude' | 'gemini' | 'openrouter' | 'mistral' | 'openai'
   CLAUDE_MEM_GEMINI_API_KEY: string;
   CLAUDE_MEM_GEMINI_MODEL: string;  // 'gemini-2.5-flash-lite' | 'gemini-2.5-flash' | 'gemini-3-flash'
   CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: boolean;  // Enable rate limiting for free tier
@@ -32,6 +32,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OPENROUTER_MAX_TOKENS: string;
   CLAUDE_MEM_MISTRAL_API_KEY: string;
   CLAUDE_MEM_MISTRAL_MODEL: string;  // 'mistral-small-latest' | 'mistral-medium-latest' | 'mistral-large-latest'
+  CLAUDE_MEM_OPENAI_API_KEY: string;
+  CLAUDE_MEM_OPENAI_MODEL: string;  // 'gpt-4o-mini' | 'gpt-4o' | 'gpt-4-turbo'
+  CLAUDE_MEM_OPENAI_BASE_URL: string;  // Custom base URL for Azure/compatible APIs
   // System Configuration
   CLAUDE_MEM_DATA_DIR: string;
   CLAUDE_MEM_LOG_LEVEL: string;
@@ -58,10 +61,24 @@ export interface SettingsDefaults {
   CLAUDE_MEM_FOLDER_MD_EXCLUDE: string;  // JSON array of folder paths to exclude from CLAUDE.md generation
   // Vector Database Configuration
   CLAUDE_MEM_CHROMA_ENABLED: boolean;  // Disable Chroma to save RAM/avoid zombie processes (auto-disabled on Windows)
-  CLAUDE_MEM_VECTOR_DB: string;  // 'chroma' | 'qdrant'
+  CLAUDE_MEM_VECTOR_DB: string;  // 'chroma' | 'qdrant' | 'none' (disabled)
   CLAUDE_MEM_EMBEDDING_MODEL: string;  // Embedding model for Qdrant (e.g., 'Xenova/all-MiniLM-L6-v2')
   // Project Exclusion
   CLAUDE_MEM_EXCLUDE_PROJECTS: string;  // JSON array of glob patterns to exclude projects (e.g., '["temp-*", "test-?"]')
+  // Remote Worker Configuration
+  CLAUDE_MEM_REMOTE_MODE: boolean;       // Enable remote worker mode (default: false)
+  CLAUDE_MEM_REMOTE_URL: string;         // Remote worker URL (e.g., "https://claude-mem.example.com")
+  CLAUDE_MEM_REMOTE_TOKEN: string;       // Bearer token for authentication
+  CLAUDE_MEM_REMOTE_VERIFY_SSL: boolean; // Verify SSL certificates (default: true)
+  CLAUDE_MEM_REMOTE_TIMEOUT_MS: string;  // Request timeout in milliseconds (default: 30000)
+  // Retention Policy Configuration
+  CLAUDE_MEM_RETENTION_ENABLED: boolean;         // Enable automatic retention cleanup
+  CLAUDE_MEM_RETENTION_MAX_AGE_DAYS: string;     // Delete observations older than N days (0 = disabled)
+  CLAUDE_MEM_RETENTION_MAX_COUNT: string;        // Keep only last N observations per project (0 = unlimited)
+  CLAUDE_MEM_RETENTION_EXCLUDE_TYPES: string;    // JSON array of observation types to exclude from cleanup
+  CLAUDE_MEM_RETENTION_SOFT_DELETE: boolean;     // Use soft delete instead of hard delete (archive)
+  // Batch Processing Configuration
+  CLAUDE_MEM_BATCH_SIZE: string;                 // Number of tool events to process per API call (1 = sequential, >1 = batch)
 }
 
 export class SettingsDefaultsManager {
@@ -88,6 +105,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
     CLAUDE_MEM_MISTRAL_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_MISTRAL_MODEL: 'mistral-small-latest',  // Default Mistral model (cost-effective)
+    CLAUDE_MEM_OPENAI_API_KEY: '',  // Empty by default, can be set via UI or env
+    CLAUDE_MEM_OPENAI_MODEL: 'gpt-4o-mini',  // Default OpenAI model (cost-effective)
+    CLAUDE_MEM_OPENAI_BASE_URL: '',  // Empty = use default OpenAI API, set for Azure/compatible
     // System Configuration
     CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
     CLAUDE_MEM_LOG_LEVEL: 'INFO',
@@ -118,6 +138,20 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_EMBEDDING_MODEL: 'Xenova/all-MiniLM-L6-v2',  // Default embedding model for Qdrant
     // Project Exclusion
     CLAUDE_MEM_EXCLUDE_PROJECTS: '[]',  // Empty array by default - no projects excluded
+    // Remote Worker Configuration
+    CLAUDE_MEM_REMOTE_MODE: false,           // Local mode by default
+    CLAUDE_MEM_REMOTE_URL: '',               // Empty = not configured
+    CLAUDE_MEM_REMOTE_TOKEN: '',             // Empty = no auth
+    CLAUDE_MEM_REMOTE_VERIFY_SSL: true,      // Verify SSL by default
+    CLAUDE_MEM_REMOTE_TIMEOUT_MS: '30000',   // 30 second timeout
+    // Retention Policy Configuration
+    CLAUDE_MEM_RETENTION_ENABLED: false,             // Disabled by default (safety)
+    CLAUDE_MEM_RETENTION_MAX_AGE_DAYS: '0',          // 0 = no age-based cleanup
+    CLAUDE_MEM_RETENTION_MAX_COUNT: '0',             // 0 = unlimited
+    CLAUDE_MEM_RETENTION_EXCLUDE_TYPES: '["summary"]',  // Keep summaries by default
+    CLAUDE_MEM_RETENTION_SOFT_DELETE: true,          // Archive instead of delete by default
+    // Batch Processing Configuration
+    CLAUDE_MEM_BATCH_SIZE: '5',                      // Process 5 tool events per API call by default
   };
 
   /**
@@ -203,6 +237,10 @@ export class SettingsDefaultsManager {
         'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
         'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
         'CLAUDE_MEM_CHROMA_ENABLED',
+        'CLAUDE_MEM_REMOTE_MODE',
+        'CLAUDE_MEM_REMOTE_VERIFY_SSL',
+        'CLAUDE_MEM_RETENTION_ENABLED',
+        'CLAUDE_MEM_RETENTION_SOFT_DELETE',
       ];
 
       // Merge file settings with defaults (flat schema)

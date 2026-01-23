@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { MemoriesToolbar } from './MemoriesToolbar';
 import { MemoryCard } from './MemoryCard';
 import { MemoryDetailModal } from './MemoryDetailModal';
-import { EmptyState, Spinner } from '../../components/ui';
+import { EmptyState, Spinner, Button, Icon } from '../../components/ui';
+import { useToast } from '../../context';
 
 type ViewMode = 'grid' | 'list';
 type FilterType = 'all' | 'observation' | 'summary' | 'prompt';
@@ -23,6 +24,11 @@ export function MemoriesView() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const toast = useToast();
 
   // Get project from URL query params
   const getProjectFromUrl = (): string | null => {
@@ -109,6 +115,96 @@ export function MemoriesView() {
     }
   };
 
+  const handleToggleSelection = (id: number) => {
+    setSelectedIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === memories.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(memories.map((m) => m.id)));
+    }
+  };
+
+  const handleExitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkExport = async (format: 'json' | 'csv' | 'markdown') => {
+    if (selectedIds.size === 0) {
+      toast.error('No memories selected');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const ids = Array.from(selectedIds).join(',');
+      const url = `/api/export?format=${format}&ids=${ids}`;
+
+      // Trigger download
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `claude-mem-export-${new Date().toISOString().split('T')[0]}.${format === 'markdown' ? 'md' : format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast.success(`Exported ${selectedIds.size} memories`);
+    } catch (error) {
+      toast.error('Export failed');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) {
+      toast.error('No memories selected');
+      return;
+    }
+
+    if (!confirm(`Delete ${selectedIds.size} memories? This cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch('/api/observations/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(`Deleted ${data.deletedCount} memories`);
+        setMemories((prev) => prev.filter((m) => !selectedIds.has(m.id)));
+        setSelectedIds(new Set());
+        setSelectionMode(false);
+      } else {
+        toast.error('Delete failed');
+      }
+    } catch (error) {
+      toast.error('Delete failed');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -128,6 +224,15 @@ export function MemoriesView() {
         filterType={filterType}
         onFilterTypeChange={setFilterType}
         totalCount={memories.length}
+        selectionMode={selectionMode}
+        onToggleSelectionMode={() => selectionMode ? handleExitSelectionMode() : setSelectionMode(true)}
+        selectedCount={selectedIds.size}
+        onSelectAll={handleSelectAll}
+        onExport={handleBulkExport}
+        onDelete={handleBulkDelete}
+        isExporting={isExporting}
+        isDeleting={isDeleting}
+        allSelected={memories.length > 0 && selectedIds.size === memories.length}
       />
 
       {isLoading ? (
@@ -149,6 +254,9 @@ export function MemoriesView() {
               viewMode={viewMode}
               onDelete={handleDelete}
               onView={handleView}
+              selectionMode={selectionMode}
+              isSelected={selectedIds.has(memory.id)}
+              onToggleSelection={handleToggleSelection}
             />
           ))}
         </div>

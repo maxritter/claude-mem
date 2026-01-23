@@ -11,12 +11,19 @@ const { existsSync, readFileSync } = require('fs');
 const path = require('path');
 const os = require('os');
 
-const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'thedotmack');
-const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem');
+const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'customable');
+const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'customable', 'claude-mem');
 
-// Additional cache paths for other Claude environments (e.g., claude-lab)
+// Additional marketplace paths for other Claude environments
+const ADDITIONAL_MARKETPLACE_PATHS = [
+  path.join(os.homedir(), '.config', 'claude-work', 'plugins', 'marketplaces', 'customable'),
+  path.join(os.homedir(), '.config', 'claude-lab', 'plugins', 'marketplaces', 'customable'),
+];
+
+// Additional cache paths for other Claude environments
 const ADDITIONAL_CACHE_PATHS = [
-  path.join(os.homedir(), '.config', 'claude-work', 'plugins', 'cache', 'thedotmack', 'claude-mem'),
+  path.join(os.homedir(), '.config', 'claude-work', 'plugins', 'cache', 'customable', 'claude-mem'),
+  path.join(os.homedir(), '.config', 'claude-lab', 'plugins', 'cache', 'customable', 'claude-mem'),
 ];
 
 function getCurrentBranch() {
@@ -62,39 +69,84 @@ function getPluginVersion() {
   }
 }
 
+// Helper function to run rsync with macOS compatibility
+function runRsync(source, dest, extraExcludes = []) {
+  const excludes = ['--exclude=.git', '--exclude=/.mcp.json', ...extraExcludes].join(' ');
+  // Use --no-perms to avoid permission errors on macOS
+  const cmd = `rsync -av --delete --no-perms ${excludes} "${source}" "${dest}"`;
+
+  try {
+    execSync(cmd, { stdio: 'inherit' });
+    return true;
+  } catch (error) {
+    // Exit codes 23 and 24 are partial transfer errors (some files couldn't be transferred)
+    // This is often due to permission issues on macOS and can be safely ignored
+    if (error.status === 23 || error.status === 24) {
+      console.log('\x1b[33m%s\x1b[0m', `ℹ rsync completed with warnings (exit code ${error.status})`);
+      return true;
+    }
+    throw error;
+  }
+}
+
+// On macOS, clear extended attributes that can cause rsync issues
+function clearMacOSAttributes(targetPath) {
+  if (process.platform === 'darwin' && existsSync(targetPath)) {
+    try {
+      execSync(`xattr -cr "${targetPath}"`, { stdio: 'pipe' });
+    } catch {
+      // Ignore xattr errors - not critical
+    }
+  }
+}
+
 // Normal rsync for main branch or fresh install
 console.log('Syncing to marketplace...');
 try {
-  execSync(
-    'rsync -av --delete --exclude=.git --exclude=/.mcp.json ./ ~/.claude/plugins/marketplaces/thedotmack/',
-    { stdio: 'inherit' }
-  );
+  clearMacOSAttributes(INSTALLED_PATH);
+  runRsync('./', path.join(os.homedir(), '.claude/plugins/marketplaces/customable/'));
 
   console.log('Running npm install in marketplace...');
   execSync(
-    'cd ~/.claude/plugins/marketplaces/thedotmack/ && npm install',
+    'cd ~/.claude/plugins/marketplaces/customable/ && npm install',
     { stdio: 'inherit' }
   );
+
+  // Sync to additional marketplace paths (e.g., claude-lab, claude-work)
+  for (const additionalMarketplacePath of ADDITIONAL_MARKETPLACE_PATHS) {
+    if (existsSync(additionalMarketplacePath) || existsSync(path.dirname(additionalMarketplacePath))) {
+      console.log(`Syncing to additional marketplace: ${additionalMarketplacePath}...`);
+      execSync(`mkdir -p "${additionalMarketplacePath}"`, { stdio: 'inherit' });
+      clearMacOSAttributes(additionalMarketplacePath);
+      runRsync('./', additionalMarketplacePath + '/', ['--exclude=/node_modules']);
+      // Run npm install in additional marketplace
+      if (existsSync(path.join(additionalMarketplacePath, 'package.json'))) {
+        console.log(`Running npm install in ${additionalMarketplacePath}...`);
+        execSync(
+          `cd "${additionalMarketplacePath}" && npm install`,
+          { stdio: 'inherit' }
+        );
+      }
+    }
+  }
 
   // Sync to cache folder with version
   const version = getPluginVersion();
   const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
 
   console.log(`Syncing to cache folder (version ${version})...`);
-  execSync(
-    `rsync -av --delete --exclude=.git plugin/ "${CACHE_VERSION_PATH}/"`,
-    { stdio: 'inherit' }
-  );
+  execSync(`mkdir -p "${CACHE_VERSION_PATH}"`, { stdio: 'inherit' });
+  clearMacOSAttributes(CACHE_VERSION_PATH);
+  runRsync('plugin/', CACHE_VERSION_PATH + '/');
 
   // Sync to additional cache paths (e.g., claude-lab)
   for (const additionalCachePath of ADDITIONAL_CACHE_PATHS) {
     const additionalVersionPath = path.join(additionalCachePath, version);
     if (existsSync(additionalCachePath) || existsSync(path.dirname(additionalCachePath))) {
       console.log(`Syncing to additional cache: ${additionalVersionPath}...`);
-      execSync(
-        `mkdir -p "${additionalVersionPath}" && rsync -av --delete --exclude=.git plugin/ "${additionalVersionPath}/"`,
-        { stdio: 'inherit' }
-      );
+      execSync(`mkdir -p "${additionalVersionPath}"`, { stdio: 'inherit' });
+      clearMacOSAttributes(additionalVersionPath);
+      runRsync('plugin/', additionalVersionPath + '/');
     }
   }
 

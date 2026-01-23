@@ -5,16 +5,29 @@
  */
 
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
-import { ensureWorkerRunning, getWorkerBaseUrl } from '../../shared/worker-utils.js';
-import { fetchWithRetry } from '../../shared/fetch-utils.js';
+import { tryEnsureWorkerRunning } from '../../shared/worker-utils.js';
+import { getWorkerEndpointConfig } from '../../shared/remote-endpoint.js';
+import { isRemoteMode } from '../../shared/remote-config.js';
+import { fetchWithAuth } from '../../shared/fetch-with-auth.js';
 import { isProjectExcluded, isMemoryDisabledByProjectConfig } from '../../shared/project-exclusion.js';
 import { getProjectName } from '../../utils/project-name.js';
 import { logger } from '../../utils/logger.js';
 
 export const observationHandler: EventHandler = {
   async execute(input: NormalizedHookInput): Promise<HookResult> {
-    // Ensure worker is running before any other logic
-    await ensureWorkerRunning();
+    const endpointConfig = getWorkerEndpointConfig();
+
+    // In local mode, try to ensure worker is running with a short timeout (2 seconds)
+    // Observations are non-critical - if worker is not ready, skip silently
+    if (!isRemoteMode()) {
+      const workerStatus = await tryEnsureWorkerRunning(2000);
+      if (!workerStatus.ready) {
+        logger.debug('HOOK', 'observation: Worker not ready, skipping observation', {
+          waited: workerStatus.waited,
+        });
+        return { continue: true, suppressOutput: true };
+      }
+    }
 
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
 
@@ -35,12 +48,11 @@ export const observationHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    const baseUrl = getWorkerBaseUrl();
-
     const toolStr = logger.formatTool(toolName, toolInput);
 
     logger.dataIn('HOOK', `PostToolUse: ${toolStr}`, {
-      workerUrl: baseUrl
+      workerUrl: endpointConfig.baseUrl,
+      mode: endpointConfig.mode,
     });
 
     // Validate required fields before sending to worker
@@ -49,25 +61,30 @@ export const observationHandler: EventHandler = {
     }
 
     // Send to worker - worker handles privacy check and database operations
-    const response = await fetchWithRetry(`${baseUrl}/api/sessions/observations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contentSessionId: sessionId,
-        tool_name: toolName,
-        tool_input: toolInput,
-        tool_response: toolResponse,
-        cwd
-      })
-      // Note: Removed signal to avoid Windows Bun cleanup issue (libuv assertion)
-    });
+    const response = await fetchWithAuth(
+      `${endpointConfig.baseUrl}/api/sessions/observations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          contentSessionId: sessionId,
+          tool_name: toolName,
+          tool_input: toolInput,
+          tool_response: toolResponse,
+          cwd,
+        }),
+      },
+      { endpointConfig }
+    );
 
     if (!response.ok) {
       throw new Error(`Observation storage failed: ${response.status}`);
     }
 
-    logger.debug('HOOK', 'Observation sent successfully', { toolName });
+    logger.debug('HOOK', 'Observation sent successfully', {
+      toolName,
+      mode: endpointConfig.mode,
+    });
 
     return { continue: true, suppressOutput: true };
-  }
+  },
 };

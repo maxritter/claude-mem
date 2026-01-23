@@ -1,11 +1,12 @@
 {
   "name": "claude-mem",
-  "version": "1.0.9",
+  "version": "1.19.0",
   "description": "Persistent memory for Claude Code - extended fork with Qdrant, OpenCode support, and more",
   "author": {
-    "name": "maxritter"
+    "name": "Customable",
+    "email": "plugins@customable.de"
   },
-  "repository": "https://github.com/maxritter/claude-mem",
+  "repository": "https://git.customable.host/customable/claude-mem",
   "license": "MIT",
   "keywords": [
     "memory",

@@ -26,6 +26,7 @@ import {
   removePidFile,
   getPlatformTimeout,
   cleanupOrphanedProcesses,
+  cleanupOrphanedClaudeProcesses,
   spawnDaemon,
   createSignalHandler
 } from './infrastructure/ProcessManager.js';
@@ -55,6 +56,7 @@ import { SDKAgent } from './worker/SDKAgent.js';
 import { GeminiAgent, isGeminiSelected, isGeminiAvailable } from './worker/GeminiAgent.js';
 import { OpenRouterAgent, isOpenRouterSelected, isOpenRouterAvailable } from './worker/OpenRouterAgent.js';
 import { MistralAgent, isMistralSelected, isMistralAvailable } from './worker/MistralAgent.js';
+import { OpenAIAgent, isOpenAISelected, isOpenAIAvailable } from './worker/OpenAIAgent.js';
 import { PaginationHelper } from './worker/PaginationHelper.js';
 import { SettingsManager } from './worker/SettingsManager.js';
 import { SearchManager } from './worker/SearchManager.js';
@@ -70,6 +72,12 @@ import { SearchRoutes } from './worker/http/routes/SearchRoutes.js';
 import { SettingsRoutes } from './worker/http/routes/SettingsRoutes.js';
 import { LogsRoutes } from './worker/http/routes/LogsRoutes.js';
 import { MemoryRoutes } from './worker/http/routes/MemoryRoutes.js';
+import { TagRoutes } from './worker/http/routes/TagRoutes.js';
+import { BackupRoutes } from './worker/http/routes/BackupRoutes.js';
+import { RetentionRoutes } from './worker/http/routes/RetentionRoutes.js';
+import { MetricsRoutes } from './worker/http/routes/MetricsRoutes.js';
+import { AuthRoutes } from './worker/http/routes/AuthRoutes.js';
+import { MetricsService } from './worker/MetricsService.js';
 
 /**
  * Build JSON status output for hook framework communication.
@@ -114,12 +122,14 @@ export class WorkerService {
   private geminiAgent: GeminiAgent;
   private openRouterAgent: OpenRouterAgent;
   private mistralAgent: MistralAgent;
+  private openaiAgent: OpenAIAgent;
   private paginationHelper: PaginationHelper;
   private settingsManager: SettingsManager;
   private sessionEventBroadcaster: SessionEventBroadcaster;
 
   // Route handlers
   private searchRoutes: SearchRoutes | null = null;
+  private metricsService: MetricsService | null = null;
 
   // Initialization tracking
   private initializationComplete: Promise<void>;
@@ -142,6 +152,7 @@ export class WorkerService {
     this.geminiAgent = new GeminiAgent(this.dbManager, this.sessionManager);
     this.openRouterAgent = new OpenRouterAgent(this.dbManager, this.sessionManager);
     this.mistralAgent = new MistralAgent(this.dbManager, this.sessionManager);
+    this.openaiAgent = new OpenAIAgent(this.dbManager, this.sessionManager);
 
     this.paginationHelper = new PaginationHelper(this.dbManager);
     this.settingsManager = new SettingsManager(this.dbManager);
@@ -196,13 +207,23 @@ export class WorkerService {
    * Register all route handlers with the server
    */
   private registerRoutes(): void {
+    // Auth routes (must be registered early to handle login page before other routes)
+    this.server.registerRoutes(new AuthRoutes());
+
     // Standard routes
     this.server.registerRoutes(new ViewerRoutes(this.sseBroadcaster, this.dbManager, this.sessionManager));
-    this.server.registerRoutes(new SessionRoutes(this.sessionManager, this.dbManager, this.sdkAgent, this.geminiAgent, this.openRouterAgent, this.mistralAgent, this.sessionEventBroadcaster, this));
+    this.server.registerRoutes(new SessionRoutes(this.sessionManager, this.dbManager, this.sdkAgent, this.geminiAgent, this.openRouterAgent, this.mistralAgent, this.openaiAgent, this.sessionEventBroadcaster, this));
     this.server.registerRoutes(new DataRoutes(this.paginationHelper, this.dbManager, this.sessionManager, this.sseBroadcaster, this, this.startTime));
     this.server.registerRoutes(new SettingsRoutes(this.settingsManager));
     this.server.registerRoutes(new LogsRoutes());
     this.server.registerRoutes(new MemoryRoutes(this.dbManager, 'claude-mem'));
+    this.server.registerRoutes(new TagRoutes(this.dbManager));
+    this.server.registerRoutes(new BackupRoutes(this.dbManager));
+    this.server.registerRoutes(new RetentionRoutes(this.dbManager));
+
+    // Metrics routes
+    this.metricsService = new MetricsService(this.dbManager, this.sessionManager, this.startTime);
+    this.server.registerRoutes(new MetricsRoutes(this.metricsService));
 
     // Early handler for /api/context/inject to avoid 404 during startup
     this.server.app.get('/api/context/inject', async (req, res, next) => {
@@ -245,7 +266,9 @@ export class WorkerService {
    */
   private async initializeBackground(): Promise<void> {
     try {
+      // Clean up orphaned processes from previous sessions
       await cleanupOrphanedProcesses();
+      await cleanupOrphanedClaudeProcesses();
 
       // Load mode configuration
       const { ModeManager } = await import('./domain/ModeManager.js');
@@ -321,18 +344,28 @@ export class WorkerService {
         logger.error('SYSTEM', 'Auto-recovery of pending queues failed', {}, error as Error);
       });
 
-      // Start periodic cleanup for zombie haiku agents (every 15 minutes)
+      // Start periodic cleanup for zombie/orphaned processes and stale sessions (every 5 minutes)
       // This catches processes that get re-parented to init/PID 1 after parent death
-      const CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+      // and cleans up in-memory sessions that have gone stale
+      const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+      const STALE_SESSION_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
       this.cleanupInterval = setInterval(async () => {
         try {
+          // Cleanup stale in-memory sessions (no activity for 30 minutes)
+          const staleSessions = await this.sessionManager.cleanupStaleSessions(STALE_SESSION_THRESHOLD_MS);
+          if (staleSessions > 0) {
+            logger.info('SYSTEM', `Periodic cleanup: removed ${staleSessions} stale sessions`);
+          }
+
+          // Cleanup orphaned OS processes
           await cleanupOrphanedProcesses();
-          logger.debug('SYSTEM', 'Periodic orphan cleanup completed');
+          await cleanupOrphanedClaudeProcesses();
+          logger.debug('SYSTEM', 'Periodic cleanup completed');
         } catch (error) {
-          logger.error('SYSTEM', 'Periodic orphan cleanup failed', {}, error as Error);
+          logger.error('SYSTEM', 'Periodic cleanup failed', {}, error as Error);
         }
       }, CLEANUP_INTERVAL_MS);
-      logger.info('SYSTEM', 'Started periodic orphan cleanup (every 15 minutes)');
+      logger.info('SYSTEM', 'Started periodic cleanup (every 5 minutes)');
     } catch (error) {
       logger.error('SYSTEM', 'Background initialization failed', {}, error as Error);
       throw error;
@@ -343,7 +376,10 @@ export class WorkerService {
    * Get the appropriate agent based on provider settings
    * Same logic as SessionRoutes.getActiveAgent() for consistency
    */
-  private getActiveAgent(): SDKAgent | GeminiAgent | OpenRouterAgent | MistralAgent {
+  private getActiveAgent(): SDKAgent | GeminiAgent | OpenRouterAgent | MistralAgent | OpenAIAgent {
+    if (isOpenAISelected() && isOpenAIAvailable()) {
+      return this.openaiAgent;
+    }
     if (isMistralSelected() && isMistralAvailable()) {
       return this.mistralAgent;
     }
@@ -406,16 +442,31 @@ export class WorkerService {
     const sessionStore = this.dbManager.getSessionStore();
 
     // Clean up stale 'active' sessions before processing
-    // Sessions older than 6 hours without activity are likely orphaned
-    const staleThresholdMs = 6 * 60 * 60 * 1000; // 6 hours
+    // Sessions without any activity for 30+ minutes are likely orphaned
+    const staleThresholdMs = 30 * 60 * 1000; // 30 minutes
     const staleThreshold = Date.now() - staleThresholdMs;
 
     try {
-      // First, get the IDs of stale sessions before updating them
+      // Get stale sessions by checking BOTH started_at AND last activity
+      // A session is stale if:
+      // - It started more than 30 min ago AND
+      // - No pending_messages were created in the last 30 min AND
+      // - No observations were created in the last 30 min
       const staleSessionIds = sessionStore.db.prepare(`
-        SELECT id FROM sdk_sessions
-        WHERE status = 'active' AND started_at_epoch < ?
-      `).all(staleThreshold) as { id: number }[];
+        SELECT s.id FROM sdk_sessions s
+        WHERE s.status = 'active'
+        AND s.started_at_epoch < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_messages pm
+          WHERE pm.session_db_id = s.id
+          AND pm.created_at_epoch > ?
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM observations o
+          WHERE o.memory_session_id = s.memory_session_id
+          AND o.created_at_epoch > ?
+        )
+      `).all(staleThreshold, staleThreshold, staleThreshold) as { id: number }[];
 
       if (staleSessionIds.length > 0) {
         const ids = staleSessionIds.map(r => r.id);
@@ -648,16 +699,8 @@ async function main() {
     }
 
     case 'status': {
-      const running = await isPortInUse(port);
-      const pidInfo = readPidFile();
-      if (running && pidInfo) {
-        console.log('Worker is running');
-        console.log(`  PID: ${pidInfo.pid}`);
-        console.log(`  Port: ${pidInfo.port}`);
-        console.log(`  Started: ${pidInfo.startedAt}`);
-      } else {
-        console.log('Worker is not running');
-      }
+      const { runCLI } = await import('../cli/commands.js');
+      await runCLI(process.argv.slice(2));
       process.exit(0);
     }
 
@@ -679,6 +722,19 @@ async function main() {
       const { hookCommand } = await import('../cli/hook-command.js');
       await hookCommand(platform, event);
       break;
+    }
+
+    // CLI commands that use the API
+    case 'search':
+    case 'export':
+    case 'import':
+    case 'cleanup':
+    case 'backup':
+    case 'doctor':
+    case 'retention': {
+      const { runCLI } = await import('../cli/commands.js');
+      await runCLI(process.argv.slice(2));
+      process.exit(0);
     }
 
     case '--daemon':

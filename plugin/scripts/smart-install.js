@@ -3,15 +3,25 @@
  * Smart Install Script for claude-mem
  *
  * Ensures Bun runtime and uv (Python package manager) are installed
- * (auto-installs if missing) and handles dependency installation when needed.
+ * (auto-installs if missing), handles dependency installation when needed,
+ * and registers the MCP server in Claude Code configuration.
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
-import { join } from 'path';
+import { join, dirname, fileURLToPath } from 'path';
 import { homedir } from 'os';
 
-// Use CLAUDE_PLUGIN_ROOT if available (set by Claude Code), fallback to marketplace path
-const ROOT = process.env.CLAUDE_PLUGIN_ROOT || join(homedir(), '.claude', 'plugins', 'marketplaces', 'thedotmack');
+// Determine plugin root: CLAUDE_PLUGIN_ROOT (set by Claude Code) or derive from script location
+function getPluginRoot() {
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    return process.env.CLAUDE_PLUGIN_ROOT;
+  }
+  // Fallback: derive from this script's location (scripts/smart-install.js -> parent dir)
+  const __filename = fileURLToPath(import.meta.url);
+  return dirname(dirname(__filename));
+}
+
+const ROOT = getPluginRoot();
 const MARKER = join(ROOT, '.install-version');
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -60,7 +70,8 @@ function getBunPath() {
     const result = spawnSync('bun', ['--version'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS
+      shell: IS_WINDOWS,
+      windowsHide: true  // Prevent Windows Terminal popup
     });
     if (result.status === 0) return 'bun';
   } catch {
@@ -89,7 +100,8 @@ function getBunVersion() {
     const result = spawnSync(bunPath, ['--version'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS
+      shell: IS_WINDOWS,
+      windowsHide: true  // Prevent Windows Terminal popup
     });
     return result.status === 0 ? result.stdout.trim() : null;
   } catch {
@@ -106,7 +118,8 @@ function getUvPath() {
     const result = spawnSync('uv', ['--version'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS
+      shell: IS_WINDOWS,
+      windowsHide: true  // Prevent Windows Terminal popup
     });
     if (result.status === 0) return 'uv';
   } catch {
@@ -135,7 +148,8 @@ function getUvVersion() {
     const result = spawnSync(uvPath, ['--version'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: IS_WINDOWS
+      shell: IS_WINDOWS,
+      windowsHide: true  // Prevent Windows Terminal popup
     });
     return result.status === 0 ? result.stdout.trim() : null;
   } catch {
@@ -159,13 +173,15 @@ function installBun(isUpgrade = false) {
       console.error('   Installing via PowerShell...');
       execSync('powershell -c "irm bun.sh/install.ps1 | iex"', {
         stdio: 'inherit',
-        shell: true
+        shell: true,
+        windowsHide: true  // Prevent Windows Terminal popup
       });
     } else {
       console.error('   Installing via curl...');
       execSync('curl -fsSL https://bun.sh/install | bash', {
         stdio: 'inherit',
-        shell: true
+        shell: true,
+        windowsHide: true  // Prevent Windows Terminal popup
       });
     }
 
@@ -210,13 +226,15 @@ function installUv() {
       console.error('   Installing via PowerShell...');
       execSync('powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"', {
         stdio: 'inherit',
-        shell: true
+        shell: true,
+        windowsHide: true  // Prevent Windows Terminal popup
       });
     } else {
       console.error('   Installing via curl...');
       execSync('curl -LsSf https://astral.sh/uv/install.sh | sh', {
         stdio: 'inherit',
-        shell: true
+        shell: true,
+        windowsHide: true  // Prevent Windows Terminal popup
       });
     }
 
@@ -272,7 +290,7 @@ function installDeps() {
   // Quote path for Windows paths with spaces
   const bunCmd = IS_WINDOWS && bunPath.includes(' ') ? `"${bunPath}"` : bunPath;
 
-  execSync(`${bunCmd} install`, { cwd: ROOT, stdio: 'inherit', shell: IS_WINDOWS });
+  execSync(`${bunCmd} install`, { cwd: ROOT, stdio: 'inherit', shell: IS_WINDOWS, windowsHide: true });
 
   // Write version marker
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'));
@@ -282,6 +300,68 @@ function installDeps() {
     uv: getUvVersion(),
     installedAt: new Date().toISOString()
   }));
+}
+
+/**
+ * Find the Claude Code config directory for this instance
+ * Supports: ~/.claude, ~/.config/claude-work, ~/.config/claude-lab, etc.
+ */
+function getClaudeConfigDir() {
+  // CLAUDE_PLUGIN_ROOT contains the path to the plugin, which includes the config dir
+  // e.g., /home/user/.config/claude-lab/plugins/cache/customable/claude-mem/1.2.1
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (pluginRoot) {
+    // Extract the base config dir from the plugin path
+    const parts = pluginRoot.split('/plugins/');
+    if (parts.length >= 2) {
+      return parts[0];  // e.g., /home/user/.config/claude-lab
+    }
+  }
+  // Fallback to default ~/.claude
+  return join(homedir(), '.claude');
+}
+
+/**
+ * Register the MCP server in Claude Code's configuration
+ */
+function registerMcpServer() {
+  const configDir = getClaudeConfigDir();
+  const claudeJsonPath = join(configDir, '.claude.json');
+  const mcpServerPath = join(ROOT, 'scripts', 'mcp-server.cjs');
+  const mcpName = 'plugin_claude-mem_mcp-search';
+
+  try {
+    let config = {};
+    if (existsSync(claudeJsonPath)) {
+      config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
+    }
+
+    // Initialize mcpServers if not present
+    if (!config.mcpServers) {
+      config.mcpServers = {};
+    }
+
+    // Check if our MCP is already registered with correct path
+    const existingMcp = config.mcpServers[mcpName];
+    if (existingMcp && existingMcp.args && existingMcp.args[0] === mcpServerPath) {
+      return; // Already registered correctly
+    }
+
+    // Register/update the MCP server
+    config.mcpServers[mcpName] = {
+      type: 'stdio',
+      command: 'node',
+      args: [mcpServerPath]
+    };
+
+    // Ensure directory exists
+    mkdirSync(dirname(claudeJsonPath), { recursive: true });
+    writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2));
+    console.error(`✅ MCP server registered in ${claudeJsonPath}`);
+  } catch (error) {
+    console.error(`⚠️ Could not register MCP server: ${error.message}`);
+    // Non-fatal - plugin will still work, just without MCP
+  }
 }
 
 // Main execution
@@ -296,6 +376,8 @@ try {
     installDeps();
     console.error('✅ Dependencies installed');
   }
+  // Always ensure MCP is registered
+  registerMcpServer();
 } catch (e) {
   console.error('❌ Installation failed:', e.message);
   process.exit(1);
